@@ -9,6 +9,7 @@
     "lint": "node --check src/index.js"
   },
   "dependencies": {
+    "@guardrail/contracts": "workspace:*",
     "express": "^4.19.2",
     "http-proxy-middleware": "^3.0.0",
     "@supabase/supabase-js": "^2.44.0",

@@ -28,7 +28,11 @@ services:
       start_period: 10s
 
   proxy:
-    build: ./services/proxy
+    # Root context so the @guardrail/contracts workspace dep resolves (ADR-0004
+    # deviation: this one image builds from the repo root; Dockerfile is shared).
+    build:
+      context: .
+      dockerfile: services/proxy/Dockerfile
     ports:
       - "8080:8080"
     environment:

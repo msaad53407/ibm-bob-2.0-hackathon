@@ -1,10 +1,9 @@
 """
 Single source of truth for log row construction across all Python workers.
 
-Mirrors the contracts in packages/contracts/src/index.ts:
-  - ServiceName constants
-  - ERROR_THRESHOLD / ERROR_MSG_MAX_LEN
-  - make_log_row() / is_error() / error_msg()
+Cross-language spec: packages/contracts/src/index.ts (ServiceName values,
+ERROR_THRESHOLD / ERROR_MSG_MAX_LEN, make_log_row semantics). This module is
+the only Python implementation — never reimplement per worker.
 """
 import datetime
 import uuid

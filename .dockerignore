@@ -1,0 +1,11 @@
+node_modules
+dist
+.next
+.git
+.bob
+supabase
+workers
+apps
+services/api-demo
+*.log
+.env

@@ -42,12 +42,18 @@ importers:
 
   packages/contracts:
     devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
       typescript:
         specifier: ^7.0.0
         version: 7.0.2
 
   services/proxy:
     dependencies:
+      '@guardrail/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@supabase/supabase-js':
         specifier: ^2.44.0
         version: 2.117.1
@@ -60,6 +66,9 @@ importers:
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
 
 packages:
 
@@ -767,6 +776,9 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@next/env@14.2.0': {}
@@ -1404,3 +1416,5 @@ snapshots:
   uuid@9.0.1: {}
 
   vary@1.1.2: {}
+
+  zod@3.25.76: {}

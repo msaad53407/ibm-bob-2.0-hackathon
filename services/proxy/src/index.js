@@ -1,7 +1,7 @@
 import express from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
+import { ServiceName, isError, makeLogRow } from "@guardrail/contracts";
 import { z } from "zod";
 
 // ── Env validation ────────────────────────────────────────────────────────────
@@ -30,32 +30,6 @@ const CANARY_URL  = env.CANARY_URL;
 const SUPABASE_URL  = env.SUPABASE_URL;
 const SUPABASE_KEY  = env.SUPABASE_SERVICE_KEY;
 
-// ── ServiceName — mirrors packages/contracts/src/index.ts ────────────────────
-const SERVICE = {
-  STABLE: "stable",
-  CANARY: "canary",
-  PROXY_EVENT: "proxy",
-  proxyTraffic: (t) => `proxy->${t}`,
-};
-const ERROR_THRESHOLD = 500;
-const ERROR_MSG_MAX_LEN = 500;
-
-/** Constructs a LogRow using the shared convention. */
-function makeLogRow({ service, endpoint, status_code, latency_ms, error_text = null }) {
-  const isError = status_code >= ERROR_THRESHOLD;
-  return {
-    timestamp: new Date().toISOString(),
-    service,
-    endpoint,
-    status_code,
-    latency_ms,
-    error_message: isError
-      ? (error_text ? String(error_text).slice(0, ERROR_MSG_MAX_LEN) : `error status ${status_code}`)
-      : null,
-    trace_id: randomUUID(),
-  };
-}
-
 let target = "stable";
 const targets = { stable: STABLE_URL, canary: CANARY_URL };
 
@@ -83,14 +57,14 @@ app.get("/admin/route", (_req, res) => res.json({ target }));
 // Execution endpoint: the only promote/rollback mechanism (ADR-0002)
 app.post("/admin/route", async (req, res) => {
   const next = req.body?.target;
-  if (next !== SERVICE.STABLE && next !== SERVICE.CANARY) {
+  if (next !== ServiceName.STABLE && next !== ServiceName.CANARY) {
     return res.status(400).json({ error: 'target must be "stable" | "canary"' });
   }
   target = next;
   // Log the flip as a PROXY_EVENT (not proxy traffic — this is an admin action)
   await logRow({
     ...makeLogRow({
-      service: SERVICE.PROXY_EVENT,
+      service: ServiceName.PROXY_EVENT,
       endpoint: "/admin/route",
       status_code: 200,
       latency_ms: 0,
@@ -106,11 +80,11 @@ app.use(async (req, res, next) => {
   const started = Date.now();
   res.on("finish", () => {
     void logRow(makeLogRow({
-      service: SERVICE.proxyTraffic(target),
+      service: ServiceName.PROXY_TRAFFIC(target),
       endpoint: req.originalUrl,
       status_code: res.statusCode,
       latency_ms: Date.now() - started,
-      error_text: res.statusCode >= ERROR_THRESHOLD ? `proxy saw ${res.statusCode}` : null,
+      error_text: isError(res.statusCode) ? `proxy saw ${res.statusCode}` : null,
     }));
   });
   next();
