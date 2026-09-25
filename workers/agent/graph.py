@@ -1,4 +1,5 @@
 import json, os, subprocess, sys
+from typing import Literal
 import httpx
 from fastapi import FastAPI
 from pydantic import AnyHttpUrl, BaseModel, field_validator
@@ -7,7 +8,7 @@ from supabase import create_client
 
 # shared/ is placed next to graph.py by the Dockerfile (COPY shared/log_row.py ./shared/)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
-from log_row import ServiceName, is_error  # noqa: E402
+from log_row import ServiceName, is_error, now_iso  # noqa: E402
 
 
 # ── Env validation ─────────────────────────────────────────────────────────────
@@ -63,25 +64,59 @@ def bob_criticality(spec_dir: str = "docs/spec"):
 
 
 # ── Pure decision logic ───────────────────────────────────────────────────────
-# These functions accept plain data (rows list, criticality dict) and return
-# reasons. No I/O, no HTTP, no Supabase — fully testable without mocks.
+# The Decision module interface: run_decision() + build_proposals() accept plain
+# data and return verdicts. No I/O, no HTTP, no Supabase — the interface is the
+# test surface (see test_decision.py). HTTP handlers below are thin adapters.
+
+MIN_SAMPLES = 2  # per side, per endpoint: guards p95 against single-row noise
+RECENT_WINDOW_SECONDS = 3600  # ignore rows older than this in decide/propose
+
+
+def path_of(endpoint: str) -> str:
+    """Strip the query string so matching is on path, not '?q=' noise."""
+    return endpoint.split("?", 1)[0]
+
+
+def matches(row_endpoint: str, prefix: str) -> bool:
+    """Prefix match on path: '/search' matches '/search?q=e', not '/research'."""
+    return path_of(row_endpoint).startswith(prefix)
+
+
+def percentile(sorted_vals: list[int], q: float) -> int:
+    """Safe percentile over a pre-sorted list: clamps instead of indexing out."""
+    if not sorted_vals:
+        raise ValueError("percentile() of empty list")
+    idx = min(int(len(sorted_vals) * q), len(sorted_vals) - 1)
+    return sorted_vals[idx]
+
+
+def within_window(rows: list[dict], now_iso: str, max_age_seconds: int = RECENT_WINDOW_SECONDS) -> list[dict]:
+    """Keep rows newer than max_age_seconds. Pure — caller passes `now` for tests."""
+    from datetime import datetime
+
+    def _parse(ts: str) -> datetime:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+    now = _parse(now_iso)
+    return [r for r in rows if (now - _parse(r["timestamp"])).total_seconds() <= max_age_seconds]
+
 
 def _error_rule(rows: list[dict], ep: str) -> str | None:
     """Return a reason string if canary has 5xx errors on ep and stable does not."""
-    s_err = [r for r in rows if r["service"] == ServiceName.STABLE and ep in r["endpoint"] and is_error(r["status_code"])]
-    c_err = [r for r in rows if r["service"] == ServiceName.CANARY and ep in r["endpoint"] and is_error(r["status_code"])]
+    s_err = [r for r in rows if r["service"] == ServiceName.STABLE and matches(r["endpoint"], ep) and is_error(r["status_code"])]
+    c_err = [r for r in rows if r["service"] == ServiceName.CANARY and matches(r["endpoint"], ep) and is_error(r["status_code"])]
     if c_err and not s_err:
         return f"canary 5xx on critical {ep}: {len(c_err)} vs stable 0"
     return None
 
 def _latency_rule(rows: list[dict], ep: str, factor: float = LATENCY_DEGRADATION_FACTOR) -> str | None:
     """Return a reason string if canary p95 latency on ep exceeds stable p95 by factor."""
-    s_lat = sorted([r["latency_ms"] for r in rows if r["service"] == ServiceName.STABLE and ep in r["endpoint"]])
-    c_lat = sorted([r["latency_ms"] for r in rows if r["service"] == ServiceName.CANARY and ep in r["endpoint"]])
-    if not s_lat or not c_lat:
+    s_lat = sorted([r["latency_ms"] for r in rows if r["service"] == ServiceName.STABLE and matches(r["endpoint"], ep)])
+    c_lat = sorted([r["latency_ms"] for r in rows if r["service"] == ServiceName.CANARY and matches(r["endpoint"], ep)])
+    if len(s_lat) < MIN_SAMPLES or len(c_lat) < MIN_SAMPLES:
         return None
-    s_p95 = s_lat[int(len(s_lat) * 0.95)]
-    c_p95 = c_lat[int(len(c_lat) * 0.95)]
+    s_p95 = percentile(s_lat, 0.95)
+    c_p95 = percentile(c_lat, 0.95)
     if c_p95 > s_p95 * factor:
         return f"canary p95 latency on high {ep}: {c_p95}ms vs stable {s_p95}ms"
     return None
@@ -121,12 +156,38 @@ class DecideOut(BaseModel):
     verdict: str
     reasons: list[str]
 
+# ── Adapters (I/O lives here, behind the Decision interface) ─────────────────
+
+def fetch_recent_rows(client, limit: int = 200) -> list[dict]:
+    """Supabase adapter: newest-first log rows for the Decision module."""
+    return client.table("logs").select("*").order("timestamp", desc=True).limit(limit).execute().data
+
+
+def decide_from_data(rows: list[dict], crit: dict, now_iso: str) -> tuple[str, list[str]]:
+    """One funnel: window the rows, then run the Decision module."""
+    return run_decision(within_window(rows, now_iso), crit)
+
+
+def flip_proxy(target: str) -> int:
+    """Proxy adapter: Traffic flip Execution, returns the Proxy status code."""
+    with httpx.Client(timeout=5) as c:
+        return c.post(PROXY_ADMIN_URL, json={"target": target}).status_code
+
+
+def record_audit(client, approver: str, target: str, status_code: int) -> None:
+    """Audit trail adapter: append-only record of the Execution outcome."""
+    client.table("audit").insert({
+        "approver": approver, "action": f"flip to {target}",
+        "outcome": f"proxy={status_code}", "proposal": {"target": target},
+    }).execute()
+
+
 @app.post("/decide", response_model=DecideOut)
 def decide():
     """HTTP adapter: fetches rows + criticality, delegates to run_decision()."""
-    rows = sb().table("logs").select("*").order("timestamp", desc=True).limit(200).execute().data
+    rows = fetch_recent_rows(sb())
     crit = bob_criticality()
-    verdict, reasons = run_decision(rows, crit)
+    verdict, reasons = decide_from_data(rows, crit, now_iso())
     return {"verdict": verdict, "reasons": reasons}
 
 def build_proposals(verdict: str, reasons: list[str]) -> list[dict]:
@@ -173,19 +234,19 @@ def build_proposals(verdict: str, reasons: list[str]) -> list[dict]:
 
 @app.post("/propose")
 def propose():
-    d = decide()
-    return {"proposals": build_proposals(d.verdict, d.reasons)}
+    """HTTP adapter: single fetch, then Decision + Proposal through one funnel."""
+    rows = fetch_recent_rows(sb())
+    crit = bob_criticality()
+    verdict, reasons = decide_from_data(rows, crit, now_iso())
+    return {"proposals": build_proposals(verdict, reasons)}
 
 class Approve(BaseModel):
-    target: str  # stable | canary
+    target: Literal["stable", "canary"]
     approver: str = "human"
 
 @app.post("/execute")
 def execute(a: Approve):
-    with httpx.Client(timeout=5) as c:
-        r = c.post(PROXY_ADMIN_URL, json={"target": a.target})
-    sb().table("audit").insert({
-        "approver": a.approver, "action": f"flip to {a.target}",
-        "outcome": f"proxy={r.status_code}", "proposal": {"target": a.target},
-    }).execute()
-    return {"ok": r.status_code == 200, "target": a.target}
+    """HTTP adapter: Traffic flip via the Proxy adapter, outcome to Audit trail."""
+    status_code = flip_proxy(a.target)
+    record_audit(sb(), a.approver, a.target, status_code)
+    return {"ok": status_code == 200, "target": a.target}
