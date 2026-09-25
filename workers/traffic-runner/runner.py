@@ -7,6 +7,8 @@ STABLE = os.getenv("STABLE_URL", "http://stable:8000")
 CANARY = os.getenv("CANARY_URL", "http://canary:8000")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() == "true"
+INTERVAL_SECONDS = int(os.getenv("INTERVAL_SECONDS", "30"))
 
 CASES = [
     ("GET", "/search?q=normal", None),
@@ -52,4 +54,9 @@ def main():
         print(r)
 
 if __name__ == "__main__":
-    main()
+    if RUN_ONCE:
+        main()
+    else:
+        while True:
+            main()
+            time.sleep(INTERVAL_SECONDS)

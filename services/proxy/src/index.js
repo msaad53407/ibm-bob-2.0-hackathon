@@ -1,5 +1,5 @@
 import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 
@@ -74,6 +74,7 @@ app.use(
   createProxyMiddleware({
     router: () => targets[target],
     changeOrigin: true,
+    on: { proxyReq: fixRequestBody },
     logger: console,
   })
 );

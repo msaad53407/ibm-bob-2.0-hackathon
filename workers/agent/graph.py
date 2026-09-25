@@ -40,12 +40,21 @@ def decide():
     rows = sb().table("logs").select("*").order("timestamp", desc=True).limit(200).execute().data
     crit = bob_criticality()
     reasons = []
-    # simple MVP rule: error_diff>5% OR p95 latency split on critical endpoint => escalate
+    # Rule 1: canary 5xx on critical endpoints => escalate
     for ep in crit.get("critical", ["/checkout"]):
         s_err = [r for r in rows if r["service"] == "stable" and ep in r["endpoint"] and r["status_code"] >= 500]
         c_err = [r for r in rows if r["service"] == "canary" and ep in r["endpoint"] and r["status_code"] >= 500]
         if c_err and not s_err:
             reasons.append(f"canary 5xx on critical {ep}: {len(c_err)} vs stable 0")
+    # Rule 2: p95 latency split on high endpoints => escalate
+    for ep in crit.get("high", ["/search"]):
+        s_lat = sorted([r["latency_ms"] for r in rows if r["service"] == "stable" and ep in r["endpoint"]])
+        c_lat = sorted([r["latency_ms"] for r in rows if r["service"] == "canary" and ep in r["endpoint"]])
+        if s_lat and c_lat:
+            s_p95 = s_lat[int(len(s_lat) * 0.95)]
+            c_p95 = c_lat[int(len(c_lat) * 0.95)]
+            if c_p95 > s_p95 * 2:
+                reasons.append(f"canary p95 latency on high {ep}: {c_p95}ms vs stable {s_p95}ms")
     if reasons:
         return {"verdict": "escalate", "reasons": reasons}
     return {"verdict": "keep", "reasons": ["no critical diff"]}
@@ -53,7 +62,7 @@ def decide():
 @app.post("/propose")
 def propose():
     d = decide()
-    if d["verdict"] == "keep":
+    if d.verdict == "keep":
         return {"proposals": []}
     return {"proposals": [
         {"action": "traffic flip to stable", "risk": 0.1, "blast_radius": "proxy only", "reversibility": "instant", "execute": {"target": "stable"}},

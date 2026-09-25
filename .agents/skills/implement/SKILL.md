@@ -1,7 +1,9 @@
 ---
 name: implement
-description: "Implement a piece of work based on a spec or set of tickets."
+description: Implement a piece of work based on a spec or set of tickets.
 disable-model-invocation: true
+metadata:
+  disable-model-invocation: false
 ---
 
 Implement the work described by the user in the spec or tickets.
