@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { ServiceName, isError, makeLogRow } from "@guardrail/contracts";
 import { z } from "zod";
 
-// ── Env validation ────────────────────────────────────────────────────────────
+// ── Config adapter ──────────────────────────────────────────────────────────
 // Fails fast at startup with a clear message rather than a cryptic runtime error.
 const EnvSchema = z.object({
   PORT:                 z.coerce.number().int().positive().default(8080),
@@ -14,38 +14,84 @@ const EnvSchema = z.object({
   SUPABASE_SERVICE_KEY: z.string().min(1, { message: "SUPABASE_SERVICE_KEY is required" }),
 });
 
-const envResult = EnvSchema.safeParse(process.env);
-if (!envResult.success) {
-  console.error("❌  Missing or invalid environment variables:\n");
-  for (const issue of envResult.error.issues) {
-    console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+function parseEnv(source) {
+  const result = EnvSchema.safeParse(source);
+  if (!result.success) {
+    console.error("❌  Missing or invalid environment variables:\n");
+    for (const issue of result.error.issues) {
+      console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+    }
+    process.exit(1);
   }
-  process.exit(1);
+  return result.data;
 }
-const env = envResult.data;
 
-const PORT        = env.PORT;
-const STABLE_URL  = env.STABLE_URL;
-const CANARY_URL  = env.CANARY_URL;
-const SUPABASE_URL  = env.SUPABASE_URL;
-const SUPABASE_KEY  = env.SUPABASE_SERVICE_KEY;
+// ── Logging adapter ─────────────────────────────────────────────────────────
+// Audit trail writes live here, behind the Proxy interface. Logging never
+// blocks proxying: failures are swallowed by design.
 
-let target = "stable";
-const targets = { stable: STABLE_URL, canary: CANARY_URL };
+/** Typed flip event: an admin action, not an error. The logs table has no
+ *  note column, so the message rides in error_message for Audit visibility. */
+function makeFlipRow(target) {
+  return {
+    ...makeLogRow({
+      service: ServiceName.PROXY_EVENT,
+      endpoint: "/admin/route",
+      status_code: 200,
+      latency_ms: 0,
+    }),
+    error_message: `traffic flip to ${target}`,
+  };
+}
+
+function createLogger(client) {
+  async function logRow(row) {
+    if (!client) return;
+    try {
+      await client.from("logs").insert(row);
+    } catch {
+      // never block proxying on logging
+    }
+  }
+
+  async function logFlip(target) {
+    await logRow(makeFlipRow(target));
+  }
+
+  function trafficMiddleware(getTarget) {
+    return (req, res, next) => {
+      const started = Date.now();
+      res.on("finish", () => {
+        void logRow(makeLogRow({
+          service: ServiceName.PROXY_TRAFFIC(getTarget()),
+          endpoint: req.originalUrl,
+          status_code: res.statusCode,
+          latency_ms: Date.now() - started,
+          error_text: isError(res.statusCode) ? `proxy saw ${res.statusCode}` : null,
+        }));
+      });
+      next();
+    };
+  }
+
+  return { logRow, logFlip, trafficMiddleware };
+}
+
+// ── Proxy module: route + flip behind one interface ─────────────────────────
+
+const env = parseEnv(process.env);
+
+const PORT = env.PORT;
+const targets = { stable: env.STABLE_URL, canary: env.CANARY_URL };
 
 const supabase =
-  SUPABASE_URL && SUPABASE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY
+    ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY)
     : null;
+const logger = createLogger(supabase);
 
-async function logRow(row) {
-  if (!supabase) return;
-  try {
-    await supabase.from("logs").insert(row);
-  } catch {
-    // never block proxying on logging
-  }
-}
+let target = "stable";
+const getTarget = () => target;
 
 const app = express();
 app.use(express.json());
@@ -61,34 +107,11 @@ app.post("/admin/route", async (req, res) => {
     return res.status(400).json({ error: 'target must be "stable" | "canary"' });
   }
   target = next;
-  // Log the flip as a PROXY_EVENT (not proxy traffic — this is an admin action)
-  await logRow({
-    ...makeLogRow({
-      service: ServiceName.PROXY_EVENT,
-      endpoint: "/admin/route",
-      status_code: 200,
-      latency_ms: 0,
-      error_text: `traffic flip to ${target}`,
-    }),
-    // Override error_message: flips are not errors even though we carry a message
-    error_message: `traffic flip to ${target}`,
-  });
+  await logger.logFlip(target);
   res.json({ target });
 });
 
-app.use(async (req, res, next) => {
-  const started = Date.now();
-  res.on("finish", () => {
-    void logRow(makeLogRow({
-      service: ServiceName.PROXY_TRAFFIC(target),
-      endpoint: req.originalUrl,
-      status_code: res.statusCode,
-      latency_ms: Date.now() - started,
-      error_text: isError(res.statusCode) ? `proxy saw ${res.statusCode}` : null,
-    }));
-  });
-  next();
-});
+app.use(logger.trafficMiddleware(getTarget));
 
 app.use(
   "/",
