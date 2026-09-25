@@ -1,4 +1,4 @@
-"""Tests for the Decision module interface in graph.py.
+"""Tests for the Decision module interface (decision.py via service.py).
 
 Run:  python3 -m unittest test_decision -v   (from workers/agent/)
 No Supabase, no HTTP, no mocks — the interface is the test surface.
@@ -14,16 +14,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "sha
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shared"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from graph import (  # noqa: E402
+from decision import (  # noqa: E402
     approve_execution,
     build_proposals,
-    decide_from_data,
     matches,
     path_of,
     percentile,
     run_decision,
     within_window,
 )
+from service import decide_from_data  # noqa: E402
 
 NOW = "2026-09-26T12:00:00+00:00"
 

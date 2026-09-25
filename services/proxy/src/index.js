@@ -1,7 +1,9 @@
 import express from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { ServiceName } from "@guardrail/contracts";
-import { createLogger, createSupabaseClient, parseEnv } from "./lib.js";
+import { parseEnv } from "./config.js";
+import { createSupabaseClient } from "./supabase.js";
+import { createLogger } from "./logger.js";
 
 // ── Proxy module: route + flip behind one interface ─────────────────────────
 
