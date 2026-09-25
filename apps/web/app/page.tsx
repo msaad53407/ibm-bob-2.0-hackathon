@@ -12,6 +12,7 @@ const AGENT = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8003";
 type Log = {
   timestamp: string; service: string; endpoint: string;
   status_code: number; latency_ms: number; error_message: string | null;
+  note: string | null;
 };
 
 type Proposal = {
@@ -30,17 +31,17 @@ type AuditRow = {
 
 export default function Page() {
   const [logs, setLogs] = useState<Log[]>([]);
-  const [set, setSet] = useState<ProposalSet | null>(null);
+  const [proposalSet, setProposalSet] = useState<ProposalSet | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [approver, setApprover] = useState("human");
 
   async function refresh() {
-    const [p, a] = await Promise.all([
+    const [freshSet, auditRows] = await Promise.all([
       fetch(`${AGENT}/propose`, { method: "POST" }).then((r) => r.json()),
       fetch(`${AGENT}/audit`).then((r) => r.json()).catch(() => []),
     ]);
-    setSet(p as ProposalSet);
-    setAudit(a as AuditRow[]);
+    setProposalSet(freshSet as ProposalSet);
+    setAudit(auditRows as AuditRow[]);
   }
 
   useEffect(() => {
@@ -56,14 +57,23 @@ export default function Page() {
 
   async function approve(proposal: Proposal) {
     if (!proposal.execute) return;
-    await fetch(`${AGENT}/execute`, {
+    if (proposalSet?.id == null) {
+      alert("No persisted proposal set — refresh before approving.");
+      return;
+    }
+    const res = await fetch(`${AGENT}/execute`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         target: proposal.execute.target,
         approver: approver.trim() || "human",
-        proposal_id: set?.id ?? null,
+        proposal_id: proposalSet.id,
       }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(`Approval rejected: ${body.detail ?? res.statusText}`);
+      return;
+    }
     void refresh();
   }
 
@@ -71,9 +81,9 @@ export default function Page() {
     <main>
       <h1>GuardRail — canary verifier</h1>
       <div className="card">
-        <h3>Decision: {set?.verdict ?? "…"}</h3>
+        <h3>Decision: {proposalSet?.verdict ?? "…"}</h3>
         <ul>
-          {(set?.reasons ?? []).map((r) => <li key={r}>{r}</li>)}
+          {(proposalSet?.reasons ?? []).map((r) => <li key={r}>{r}</li>)}
         </ul>
       </div>
       <div className="card">
@@ -82,7 +92,7 @@ export default function Page() {
           Approver:{" "}
           <input value={approver} onChange={(e) => setApprover(e.target.value)} />
         </label>
-        {(set?.proposals ?? []).map((p) => (
+        {(proposalSet?.proposals ?? []).map((p) => (
           <div key={p.action}>
             <span>{p.action} (risk {p.risk}, {p.blast_radius}, {p.reversibility})</span>{" "}
             {p.execute ? (
@@ -92,7 +102,7 @@ export default function Page() {
             )}
           </div>
         ))}
-        {set && set.proposals.length === 0 && <p>No action proposed — canary holds.</p>}
+        {proposalSet && proposalSet.proposals.length === 0 && <p>No action proposed — canary holds.</p>}
       </div>
       <div className="card">
         <h3>Audit trail</h3>

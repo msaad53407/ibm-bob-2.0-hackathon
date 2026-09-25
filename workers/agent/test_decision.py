@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from graph import (  # noqa: E402
+    approve_execution,
     build_proposals,
     decide_from_data,
     matches,
@@ -110,6 +111,32 @@ class TestProposals(unittest.TestCase):
         self.assertEqual(props[0]["execute"], {"target": "stable"})
         self.assertEqual(len(props), 2)
         self.assertIsNone(props[1]["execute"])
+
+
+class TestApprovalGate(unittest.TestCase):
+    def test_unknown_set_rejected(self):
+        self.assertEqual(approve_execution(None, "stable"), "unknown proposal_id")
+
+    def test_non_escalating_set_rejected(self):
+        self.assertEqual(
+            approve_execution({"verdict": "keep", "proposals": []}, "stable"),
+            "proposal set did not escalate",
+        )
+
+    def test_unapproved_target_rejected(self):
+        funding = {"verdict": "escalate", "proposals": [
+            {"action": "traffic flip to stable", "execute": {"target": "stable"}},
+        ]}
+        self.assertIsNone(approve_execution(funding, "stable"))
+        self.assertIn("not in approved proposals",
+                      approve_execution(funding, "canary") or "")
+
+    def test_informational_only_set_rejects_flip(self):
+        funding = {"verdict": "escalate", "proposals": [
+            {"action": "investigate", "execute": None},
+        ]}
+        self.assertIn("not in approved proposals",
+                      approve_execution(funding, "stable") or "")
 
 
 if __name__ == "__main__":

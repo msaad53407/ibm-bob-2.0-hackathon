@@ -18,6 +18,7 @@ export type LogRow = {
   status_code: number;
   latency_ms: number;
   error_message: string | null;
+  note: string | null;
   trace_id: string;
 };
 
@@ -51,6 +52,7 @@ export type MakeLogRowInput = {
   status_code: number;
   latency_ms: number;
   error_text?: string | null;
+  note?: string | null;
   trace_id?: string;
 };
 
@@ -62,6 +64,7 @@ export function makeLogRow(input: MakeLogRowInput): LogRow {
     status_code: input.status_code,
     latency_ms: input.latency_ms,
     error_message: errorMessage(input.error_text ?? null, input.status_code),
+    note: input.note ?? null,
     trace_id: input.trace_id ?? crypto.randomUUID(),
   };
 }

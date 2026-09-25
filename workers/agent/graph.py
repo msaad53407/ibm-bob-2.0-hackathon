@@ -1,7 +1,7 @@
 import json, os, subprocess, sys
 from typing import Literal
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import AnyHttpUrl, BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from supabase import create_client
@@ -73,6 +73,10 @@ def bob_criticality(spec_dir: str = "docs/spec"):
 
 MIN_SAMPLES = SPEC_MIN_SAMPLES  # per side, per endpoint: guards p95 against single-row noise
 RECENT_WINDOW_SECONDS = 3600  # ignore rows older than this in decide/propose
+RECENT_FETCH_LIMIT = 200  # newest-first cap per fetch; callers pass explicit limits, not magic numbers
+
+# Domain concept: the only legal Traffic flip targets (ADR-0002).
+Target = Literal["stable", "canary"]
 
 
 def path_of(endpoint: str) -> str:
@@ -161,23 +165,23 @@ class DecideOut(BaseModel):
 
 # ── Adapters (I/O lives here, behind the Decision interface) ─────────────────
 
-def fetch_recent_rows(client, limit: int = 200) -> list[dict]:
+def fetch_recent_rows(client, limit: int = RECENT_FETCH_LIMIT) -> list[dict]:
     """Supabase adapter: newest-first log rows for the Decision module."""
     return client.table("logs").select("*").order("timestamp", desc=True).limit(limit).execute().data
 
 
-def decide_from_data(rows: list[dict], crit: dict, now_iso: str) -> tuple[str, list[str]]:
+def decide_from_data(rows: list[dict], crit: dict, now: str) -> tuple[str, list[str]]:
     """One funnel: window the rows, then run the Decision module."""
-    return run_decision(within_window(rows, now_iso), crit)
+    return run_decision(within_window(rows, now), crit)
 
 
-def flip_proxy(target: str) -> int:
+def flip_proxy(target: Target) -> int:
     """Proxy adapter: Traffic flip Execution, returns the Proxy status code."""
     with httpx.Client(timeout=5) as c:
         return c.post(PROXY_ADMIN_URL, json={"target": target}).status_code
 
 
-def record_audit(client, approver: str, target: str, status_code: int, proposal_id: int | None = None) -> None:
+def record_audit(client, approver: str, target: Target, status_code: int, proposal_id: int | None = None) -> None:
     """Audit trail adapter: append-only record of the Execution outcome."""
     client.table("audit").insert({
         "approver": approver, "action": f"flip to {target}",
@@ -197,22 +201,51 @@ def save_proposals(client, verdict: str, proposals: list[dict]) -> int | None:
         return None  # history is advisory — never block the Decision
 
 
-def list_proposals(client, limit: int = 10) -> list[dict]:
-    """Proposal adapter: recent Proposal sets, newest first."""
+def _list_recent(client, table: str, limit: int) -> list[dict]:
+    """Shared shape behind the history adapters: newest-first rows, [] on failure."""
     try:
-        return client.table("proposals").select("*").order(
+        return client.table(table).select("*").order(
             "created_at", desc=True).limit(limit).execute().data
     except Exception:
         return []
+
+
+def list_proposals(client, limit: int = 10) -> list[dict]:
+    """Proposal adapter: recent Proposal sets, newest first."""
+    return _list_recent(client, "proposals", limit)
 
 
 def list_audit(client, limit: int = 20) -> list[dict]:
     """Audit trail adapter: recent Execution records, newest first."""
+    return _list_recent(client, "audit", limit)
+
+
+def get_proposal_set(client, proposal_id: int) -> dict | None:
+    """Proposal adapter: fetch one persisted set by id for the approval gate."""
     try:
-        return client.table("audit").select("*").order(
-            "created_at", desc=True).limit(limit).execute().data
+        data = client.table("proposals").select("*").eq("id", proposal_id).execute().data
+        return data[0] if data else None
     except Exception:
-        return []
+        return None
+
+
+def approve_execution(proposal_set: dict | None, target: str) -> str | None:
+    """
+    Pure approval gate: Execution accepts only approved Proposal IDs.
+    Returns None when the flip may proceed, else the rejection reason.
+    """
+    if proposal_set is None:
+        return "unknown proposal_id"
+    if proposal_set.get("verdict") != "escalate":
+        return "proposal set did not escalate"
+    approved = [
+        p["execute"]["target"]
+        for p in proposal_set.get("proposals", [])
+        if p.get("execute") and p["execute"].get("target")
+    ]
+    if target not in approved:
+        return f"target {target!r} not in approved proposals {approved}"
+    return None
 
 
 @app.post("/decide", response_model=DecideOut)
@@ -301,9 +334,9 @@ def audit_history():
 
 
 class Approve(BaseModel):
-    target: Literal["stable", "canary"]
+    target: Target
     approver: str = "human"
-    proposal_id: int | None = None
+    proposal_id: int  # required: Execution accepts only approved Proposal IDs
 
     @field_validator("approver")
     @classmethod
@@ -315,7 +348,10 @@ class Approve(BaseModel):
 
 @app.post("/execute")
 def execute(a: Approve):
-    """HTTP adapter: Traffic flip via the Proxy adapter, outcome to Audit trail."""
+    """HTTP adapter: gated Traffic flip via the Proxy adapter, outcome to Audit trail."""
+    reason = approve_execution(get_proposal_set(sb(), a.proposal_id), a.target)
+    if reason is not None:
+        raise HTTPException(status_code=422, detail=reason)
     status_code = flip_proxy(a.target)
     record_audit(sb(), a.approver, a.target, status_code, a.proposal_id)
     return {"ok": status_code == 200, "target": a.target}

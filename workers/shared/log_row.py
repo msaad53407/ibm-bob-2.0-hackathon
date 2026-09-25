@@ -58,6 +58,7 @@ def make_log_row(
     status_code: int,
     latency_ms: int,
     error_text: str | None = None,
+    note: str | None = None,
     trace_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -69,6 +70,7 @@ def make_log_row(
         status_code:  HTTP status code.
         latency_ms:   Elapsed time in milliseconds.
         error_text:   Raw response body or exception string. Truncated automatically.
+        note:         Non-error annotation (e.g. Traffic flip events). NULL unless set.
         trace_id:     UUID string. Generated automatically if omitted.
     """
     return {
@@ -78,5 +80,6 @@ def make_log_row(
         "status_code": status_code,
         "latency_ms": latency_ms,
         "error_message": error_msg(error_text, status_code),
+        "note": note,
         "trace_id": trace_id or str(uuid.uuid4()),
     }
