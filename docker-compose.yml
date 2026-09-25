@@ -6,6 +6,12 @@ services:
       PORT: 8000
     expose:
       - "8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   canary:
     build: ./services/api-demo
@@ -14,6 +20,12 @@ services:
       PORT: 8000
     expose:
       - "8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   proxy:
     build: ./services/proxy
@@ -25,12 +37,22 @@ services:
       PORT: 8080
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - stable
-      - canary
+      stable:
+        condition: service_healthy
+      canary:
+        condition: service_healthy
 
   traffic-runner:
-    build: ./workers/traffic-runner
+    build:
+      context: ./workers
+      dockerfile: traffic-runner/Dockerfile
     environment:
       STABLE_URL: http://stable:8000
       CANARY_URL: http://canary:8000
@@ -38,11 +60,15 @@ services:
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       RUN_ONCE: "true"
     depends_on:
-      - stable
-      - canary
+      stable:
+        condition: service_healthy
+      canary:
+        condition: service_healthy
 
   agent:
-    build: ./workers/agent
+    build:
+      context: ./workers
+      dockerfile: agent/Dockerfile
     ports:
       - "8003:8003"
     environment:
@@ -51,8 +77,15 @@ services:
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       PROXY_ADMIN_URL: http://proxy:8080/admin/route
       BOB_SHELL: bob-shell
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
     depends_on:
-      - proxy
+      proxy:
+        condition: service_healthy
 
   web:
     build: ./apps/web
@@ -63,5 +96,7 @@ services:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       AGENT_URL: http://agent:8003
     depends_on:
-      - proxy
-      - agent
+      proxy:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
