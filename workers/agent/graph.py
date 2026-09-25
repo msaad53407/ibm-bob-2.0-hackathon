@@ -177,12 +177,42 @@ def flip_proxy(target: str) -> int:
         return c.post(PROXY_ADMIN_URL, json={"target": target}).status_code
 
 
-def record_audit(client, approver: str, target: str, status_code: int) -> None:
+def record_audit(client, approver: str, target: str, status_code: int, proposal_id: int | None = None) -> None:
     """Audit trail adapter: append-only record of the Execution outcome."""
     client.table("audit").insert({
         "approver": approver, "action": f"flip to {target}",
-        "outcome": f"proxy={status_code}", "proposal": {"target": target},
+        "outcome": f"proxy={status_code}",
+        "proposal": {"target": target, "proposal_id": proposal_id},
     }).execute()
+
+
+def save_proposals(client, verdict: str, proposals: list[dict]) -> int | None:
+    """Proposal adapter: persist the ranked set, return its id for approval."""
+    try:
+        data = client.table("proposals").insert(
+            {"verdict": verdict, "proposals": proposals}
+        ).execute().data
+        return data[0]["id"] if data else None
+    except Exception:
+        return None  # history is advisory — never block the Decision
+
+
+def list_proposals(client, limit: int = 10) -> list[dict]:
+    """Proposal adapter: recent Proposal sets, newest first."""
+    try:
+        return client.table("proposals").select("*").order(
+            "created_at", desc=True).limit(limit).execute().data
+    except Exception:
+        return []
+
+
+def list_audit(client, limit: int = 20) -> list[dict]:
+    """Audit trail adapter: recent Execution records, newest first."""
+    try:
+        return client.table("audit").select("*").order(
+            "created_at", desc=True).limit(limit).execute().data
+    except Exception:
+        return []
 
 
 @app.post("/decide", response_model=DecideOut)
@@ -235,21 +265,57 @@ def build_proposals(verdict: str, reasons: list[str]) -> list[dict]:
     return proposals
 
 
-@app.post("/propose")
-def propose():
-    """HTTP adapter: single fetch, then Decision + Proposal through one funnel."""
+class ProposalSet(BaseModel):
+    id: int | None
+    verdict: str
+    reasons: list[str]
+    proposals: list[dict]
+
+
+def current_proposal_set() -> ProposalSet:
+    """One funnel: fetch once, then Decision + Proposal + persistence."""
     rows = fetch_recent_rows(sb())
     crit = bob_criticality()
     verdict, reasons = decide_from_data(rows, crit, now_iso())
-    return {"proposals": build_proposals(verdict, reasons)}
+    proposals = build_proposals(verdict, reasons)
+    pid = save_proposals(sb(), verdict, proposals)
+    return ProposalSet(id=pid, verdict=verdict, reasons=reasons, proposals=proposals)
+
+
+@app.post("/propose", response_model=ProposalSet)
+def propose():
+    """Proposal interface: ranked, persisted set the dashboard approves against."""
+    return current_proposal_set()
+
+
+@app.get("/proposals", response_model=list[dict])
+def proposals_history():
+    """Proposal interface: recent sets for the Approval checkpoint."""
+    return list_proposals(sb())
+
+
+@app.get("/audit", response_model=list[dict])
+def audit_history():
+    """Audit trail interface: Execution history for the dashboard."""
+    return list_audit(sb())
+
 
 class Approve(BaseModel):
     target: Literal["stable", "canary"]
     approver: str = "human"
+    proposal_id: int | None = None
+
+    @field_validator("approver")
+    @classmethod
+    def _approver_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("approver must not be empty")
+        return v
+
 
 @app.post("/execute")
 def execute(a: Approve):
     """HTTP adapter: Traffic flip via the Proxy adapter, outcome to Audit trail."""
     status_code = flip_proxy(a.target)
-    record_audit(sb(), a.approver, a.target, status_code)
+    record_audit(sb(), a.approver, a.target, status_code, a.proposal_id)
     return {"ok": status_code == 200, "target": a.target}
