@@ -5,10 +5,11 @@ from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from supabase import create_client
 
-# shared/ is placed next to runner.py by the Dockerfile (COPY shared/log_row.py ./shared/)
+# shared/ is placed next to runner.py by the Dockerfile (COPY shared/*.py ./shared/)
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 from log_row import ServiceName, make_log_row  # noqa: E402
+from verification import CASES  # noqa: E402 — canonical probe spec, see shared/verification.py
 
 
 # ── Env validation ─────────────────────────────────────────────────────────────
@@ -43,12 +44,8 @@ SUPABASE_KEY     = cfg.supabase_service_key
 RUN_ONCE         = cfg.run_once
 INTERVAL_SECONDS = cfg.interval_seconds
 
-CASES = [
-    ("GET", "/search?q=normal", None),
-    ("GET", "/search?q=edge", None),
-    ("POST", "/checkout", {"item_id": "a", "qty": 1}),
-    ("POST", "/checkout", {}),  # edge: triggers 500 on canary, 400 on stable
-]
+# CASES is the canonical probe spec from shared/verification.py (imported
+# above). Do not redeclare probe inputs here.
 
 # Maps ServiceName constants to their base URLs
 SERVICES = [

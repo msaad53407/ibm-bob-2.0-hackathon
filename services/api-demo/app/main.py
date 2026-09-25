@@ -33,14 +33,16 @@ def health():
 
 @app.get("/search")
 async def search(q: str = "x"):
-    # Bug 2 (canary only): latency injection
+    # Planted Canary bug probed by shared/verification.py CASES (high tier):
+    # latency injection visible to the p95 rule.
     if BUG_PROFILE == "canary":
         await asyncio.sleep(0.8)
     return {"profile": BUG_PROFILE, "q": q, "results": [q]}
 
 @app.post("/checkout")
 def checkout(body: Checkout, response: Response):
-    # Bug 1 (canary only): 500 on edge case, stable correctly returns 400
+    # Planted Canary bug probed by shared/verification.py CASES (critical
+    # tier edge input {}): 500 where Stable correctly returns 400.
     if not body.item_id:
         if BUG_PROFILE == "canary":
             return JSONResponse(status_code=500, content={"error": "boom: item_id missing"})

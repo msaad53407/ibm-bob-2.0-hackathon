@@ -6,9 +6,12 @@ from pydantic import AnyHttpUrl, BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from supabase import create_client
 
-# shared/ is placed next to graph.py by the Dockerfile (COPY shared/log_row.py ./shared/)
+# shared/ is placed next to graph.py by the Dockerfile (COPY shared/*.py ./shared/)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 from log_row import ServiceName, is_error, now_iso  # noqa: E402
+from verification import CRITICALITY as SPEC_CRITICALITY  # noqa: E402
+from verification import LATENCY_DEGRADATION_FACTOR as SPEC_LATENCY_FACTOR  # noqa: E402
+from verification import MIN_SAMPLES as SPEC_MIN_SAMPLES  # noqa: E402
 
 
 # ── Env validation ─────────────────────────────────────────────────────────────
@@ -21,7 +24,7 @@ class Settings(BaseSettings):
     supabase_service_key: str
     proxy_admin_url: AnyHttpUrl = "http://proxy:8080/admin/route"  # type: ignore[assignment]
     port: int = 8003
-    latency_degradation_factor: float = 2.0
+    latency_degradation_factor: float = SPEC_LATENCY_FACTOR
 
     @field_validator("supabase_service_key")
     @classmethod
@@ -60,7 +63,7 @@ def bob_criticality(spec_dir: str = "docs/spec"):
     except Exception:
         pass
     # fallback criticality map (keeps demo unblocked without Bob access)
-    return {"critical": ["/checkout"], "high": ["/search"], "source": "fallback"}
+    return {**SPEC_CRITICALITY, "source": "fallback"}
 
 
 # ── Pure decision logic ───────────────────────────────────────────────────────
@@ -68,7 +71,7 @@ def bob_criticality(spec_dir: str = "docs/spec"):
 # data and return verdicts. No I/O, no HTTP, no Supabase — the interface is the
 # test surface (see test_decision.py). HTTP handlers below are thin adapters.
 
-MIN_SAMPLES = 2  # per side, per endpoint: guards p95 against single-row noise
+MIN_SAMPLES = SPEC_MIN_SAMPLES  # per side, per endpoint: guards p95 against single-row noise
 RECENT_WINDOW_SECONDS = 3600  # ignore rows older than this in decide/propose
 
 
