@@ -1,10 +1,26 @@
-import asyncio
-import os
+import asyncio, sys
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Literal
 
-BUG_PROFILE = os.getenv("BUG_PROFILE", "stable")  # stable | canary
+
+# ── Env validation ─────────────────────────────────────────────────────────────
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    bug_profile: Literal["stable", "canary"] = "stable"
+    port: int = 8000
+
+
+try:
+    cfg = Settings()
+except Exception as exc:
+    print(f"\n❌  Invalid environment variables:\n{exc}\n", file=sys.stderr)
+    sys.exit(1)
+
+BUG_PROFILE = cfg.bug_profile
 app = FastAPI(title=f"guardrail-demo-{BUG_PROFILE}")
 
 class Checkout(BaseModel):

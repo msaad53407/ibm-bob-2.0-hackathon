@@ -1,19 +1,46 @@
 import json, os, subprocess, sys
 import httpx
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from supabase import create_client
 
 # shared/ is placed next to graph.py by the Dockerfile (COPY shared/log_row.py ./shared/)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 from log_row import ServiceName, is_error  # noqa: E402
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-PROXY_ADMIN_URL = os.getenv("PROXY_ADMIN_URL", "http://proxy:8080/admin/route")
 
-# Latency ratio above which canary p95 is considered degraded relative to stable
-LATENCY_DEGRADATION_FACTOR = float(os.getenv("LATENCY_DEGRADATION_FACTOR", "2.0"))
+# ── Env validation ─────────────────────────────────────────────────────────────
+# Fails fast at startup — pydantic-settings raises ValidationError on first import
+# if required variables are missing or malformed.
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    supabase_url: AnyHttpUrl
+    supabase_service_key: str
+    proxy_admin_url: AnyHttpUrl = "http://proxy:8080/admin/route"  # type: ignore[assignment]
+    port: int = 8003
+    latency_degradation_factor: float = 2.0
+
+    @field_validator("supabase_service_key")
+    @classmethod
+    def _key_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("SUPABASE_SERVICE_KEY must not be empty")
+        return v
+
+
+try:
+    cfg = Settings()
+except Exception as exc:
+    import sys as _sys
+    print(f"\n❌  Missing or invalid environment variables:\n{exc}\n", file=_sys.stderr)
+    _sys.exit(1)
+
+SUPABASE_URL = str(cfg.supabase_url)
+SUPABASE_KEY = cfg.supabase_service_key
+PROXY_ADMIN_URL = str(cfg.proxy_admin_url)
+LATENCY_DEGRADATION_FACTOR = cfg.latency_degradation_factor
 
 app = FastAPI(title="guardrail-agent")
 

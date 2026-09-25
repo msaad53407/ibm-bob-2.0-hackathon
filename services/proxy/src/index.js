@@ -2,12 +2,33 @@ import express from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
-const PORT = Number(process.env.PORT ?? 8080);
-const STABLE_URL = process.env.STABLE_URL ?? "http://stable:8000";
-const CANARY_URL = process.env.CANARY_URL ?? "http://canary:8000";
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+// ── Env validation ────────────────────────────────────────────────────────────
+// Fails fast at startup with a clear message rather than a cryptic runtime error.
+const EnvSchema = z.object({
+  PORT:                 z.coerce.number().int().positive().default(8080),
+  STABLE_URL:           z.string().url().default("http://stable:8000"),
+  CANARY_URL:           z.string().url().default("http://canary:8000"),
+  SUPABASE_URL:         z.string().url({ message: "SUPABASE_URL must be a valid URL" }),
+  SUPABASE_SERVICE_KEY: z.string().min(1, { message: "SUPABASE_SERVICE_KEY is required" }),
+});
+
+const envResult = EnvSchema.safeParse(process.env);
+if (!envResult.success) {
+  console.error("❌  Missing or invalid environment variables:\n");
+  for (const issue of envResult.error.issues) {
+    console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+  }
+  process.exit(1);
+}
+const env = envResult.data;
+
+const PORT        = env.PORT;
+const STABLE_URL  = env.STABLE_URL;
+const CANARY_URL  = env.CANARY_URL;
+const SUPABASE_URL  = env.SUPABASE_URL;
+const SUPABASE_KEY  = env.SUPABASE_SERVICE_KEY;
 
 // ── ServiceName — mirrors packages/contracts/src/index.ts ────────────────────
 const SERVICE = {

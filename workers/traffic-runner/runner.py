@@ -1,18 +1,47 @@
 """Fires identical spec-derived cases at stable + canary directly (not via proxy)."""
-import os, sys, time
+import sys, time
 import httpx
+from pydantic import AnyHttpUrl, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from supabase import create_client
 
 # shared/ is placed next to runner.py by the Dockerfile (COPY shared/log_row.py ./shared/)
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 from log_row import ServiceName, make_log_row  # noqa: E402
 
-STABLE = os.getenv("STABLE_URL", "http://stable:8000")
-CANARY = os.getenv("CANARY_URL", "http://canary:8000")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() == "true"
-INTERVAL_SECONDS = int(os.getenv("INTERVAL_SECONDS", "30"))
+
+# ── Env validation ─────────────────────────────────────────────────────────────
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    stable_url: AnyHttpUrl = "http://stable:8000"  # type: ignore[assignment]
+    canary_url: AnyHttpUrl = "http://canary:8000"  # type: ignore[assignment]
+    supabase_url: AnyHttpUrl
+    supabase_service_key: str
+    run_once: bool = False
+    interval_seconds: int = 30
+
+    @field_validator("supabase_service_key")
+    @classmethod
+    def _key_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("SUPABASE_SERVICE_KEY must not be empty")
+        return v
+
+
+try:
+    cfg = Settings()
+except Exception as exc:
+    print(f"\n❌  Missing or invalid environment variables:\n{exc}\n", file=sys.stderr)
+    sys.exit(1)
+
+STABLE           = str(cfg.stable_url)
+CANARY           = str(cfg.canary_url)
+SUPABASE_URL     = str(cfg.supabase_url)
+SUPABASE_KEY     = cfg.supabase_service_key
+RUN_ONCE         = cfg.run_once
+INTERVAL_SECONDS = cfg.interval_seconds
 
 CASES = [
     ("GET", "/search?q=normal", None),
