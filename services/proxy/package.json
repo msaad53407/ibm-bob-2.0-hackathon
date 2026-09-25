@@ -1,0 +1,17 @@
+{
+  "name": "@guardrail/proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js",
+    "lint": "node --check src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.0",
+    "@supabase/supabase-js": "^2.44.0",
+    "uuid": "^9.0.1"
+  }
+}

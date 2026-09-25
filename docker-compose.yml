@@ -1,0 +1,67 @@
+services:
+  stable:
+    build: ./services/api-demo
+    environment:
+      BUG_PROFILE: stable
+      PORT: 8000
+    expose:
+      - "8000"
+
+  canary:
+    build: ./services/api-demo
+    environment:
+      BUG_PROFILE: canary
+      PORT: 8000
+    expose:
+      - "8000"
+
+  proxy:
+    build: ./services/proxy
+    ports:
+      - "8080:8080"
+    environment:
+      STABLE_URL: http://stable:8000
+      CANARY_URL: http://canary:8000
+      PORT: 8080
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    depends_on:
+      - stable
+      - canary
+
+  traffic-runner:
+    build: ./workers/traffic-runner
+    environment:
+      STABLE_URL: http://stable:8000
+      CANARY_URL: http://canary:8000
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      RUN_ONCE: "true"
+    depends_on:
+      - stable
+      - canary
+
+  agent:
+    build: ./workers/agent
+    ports:
+      - "8003:8003"
+    environment:
+      PORT: 8003
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      PROXY_ADMIN_URL: http://proxy:8080/admin/route
+      BOB_SHELL: bob-shell
+    depends_on:
+      - proxy
+
+  web:
+    build: ./apps/web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      AGENT_URL: http://agent:8003
+    depends_on:
+      - proxy
+      - agent
