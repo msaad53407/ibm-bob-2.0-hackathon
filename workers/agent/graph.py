@@ -39,7 +39,7 @@ except Exception as exc:
 
 SUPABASE_URL = str(cfg.supabase_url)
 SUPABASE_KEY = cfg.supabase_service_key
-PROXY_ADMIN_URL = str(cfg.proxy_admin_url)
+PROXY_ADMIN_URL = str(cfg.proxy_admin_url).rstrip("/")
 LATENCY_DEGRADATION_FACTOR = cfg.latency_degradation_factor
 
 app = FastAPI(title="guardrail-agent")

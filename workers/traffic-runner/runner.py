@@ -36,8 +36,8 @@ except Exception as exc:
     print(f"\n❌  Missing or invalid environment variables:\n{exc}\n", file=sys.stderr)
     sys.exit(1)
 
-STABLE           = str(cfg.stable_url)
-CANARY           = str(cfg.canary_url)
+STABLE           = str(cfg.stable_url).rstrip("/")
+CANARY           = str(cfg.canary_url).rstrip("/")
 SUPABASE_URL     = str(cfg.supabase_url)
 SUPABASE_KEY     = cfg.supabase_service_key
 RUN_ONCE         = cfg.run_once
