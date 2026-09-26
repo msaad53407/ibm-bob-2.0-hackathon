@@ -38,7 +38,7 @@ type DecisionState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "keep" }
-  | { status: "escalate"; proposals: Proposal[] };
+  | { status: "escalate"; proposals: Proposal[]; reasons: string[] };
 
 type ApproveState =
   | { status: "idle" }
@@ -114,7 +114,7 @@ export default function Page() {
     try {
       const res = await fetch(`${AGENT}/decide`, { method: "POST" });
       if (!res.ok) throw new Error(`/decide returned ${res.status}`);
-      const { verdict } = await res.json();
+      const { verdict, reasons } = await res.json();
       if (verdict === "keep") {
         setDecision({ status: "keep" });
         return;
@@ -122,10 +122,38 @@ export default function Page() {
       const pRes = await fetch(`${AGENT}/propose`, { method: "POST" });
       if (!pRes.ok) throw new Error(`/propose returned ${pRes.status}`);
       const { proposals } = await pRes.json();
-      // Record escalation wall-clock time
-      setEscalationTime(t => t ?? Date.now());
+
+      // Record escalation wall-clock time (idempotent)
+      const now = Date.now();
+      setEscalationTime(t => t ?? now);
       setElapsed(0);
-      setDecision({ status: "escalate", proposals });
+
+      // Compute MTTD from a fresh Supabase query — avoids stale/missing Realtime rows.
+      // Fetch the 200 most-recent logs (same window the agent used) and find the
+      // earliest canary anomaly from the latest batch (within 5 min of the newest row).
+      getSupabase()
+        .from("logs")
+        .select("timestamp, service, status_code, latency_ms")
+        .order("timestamp", { ascending: false })
+        .limit(200)
+        .then(({ data, error }) => {
+          if (error) { console.error("MTTD query failed:", error); return; }
+          if (!data || data.length === 0) { console.warn("MTTD: no logs returned"); return; }
+          const rows = data as { timestamp: string; service: string; status_code: number; latency_ms: number }[];
+          const newestTs = Math.max(...rows.map(r => new Date(r.timestamp).getTime()));
+          const windowStart = newestTs - 5 * 60 * 1000;
+          const anomalies = rows.filter(r =>
+            r.service === "canary" &&
+            (r.status_code >= 500 || r.latency_ms > 500) &&
+            new Date(r.timestamp).getTime() >= windowStart
+          );
+          console.log("MTTD debug — anomalies found:", anomalies.length, anomalies);
+          if (anomalies.length === 0) return;
+          const earliest = Math.min(...anomalies.map(r => new Date(r.timestamp).getTime()));
+          setMttd(Math.max(0, now - earliest));
+        });
+
+      setDecision({ status: "escalate", proposals, reasons: reasons ?? [] });
     } catch (e) {
       setDecision({ status: "error", message: String(e) });
     }
@@ -168,22 +196,9 @@ export default function Page() {
     }
   }
 
-  // MTTD: earliest canary anomaly in the most-recent runner batch → escalation time.
-  // "Batch" = within 5 min of the newest log in state (avoids stale historical rows
-  // inflating MTTD across multiple demo runs without relying on browser wall-clock).
-  const mttd = (() => {
-    if (escalationTime === null || logs.length === 0) return null;
-    const newestLog = Math.max(...logs.map(l => new Date(l.timestamp).getTime()));
-    const batchWindowStart = newestLog - 5 * 60 * 1000;
-    const anomalies = logs.filter(l =>
-      l.service === "canary" &&
-      (l.status_code >= 500 || l.latency_ms > 500) &&
-      new Date(l.timestamp).getTime() >= batchWindowStart
-    );
-    if (anomalies.length === 0) return null;
-    const earliest = Math.min(...anomalies.map(l => new Date(l.timestamp).getTime()));
-    return Math.max(0, escalationTime - earliest);
-  })();
+  // MTTD: stored as ms at the moment of escalation detection (set in checkDecision).
+  // Computed there from a fresh Supabase query so it is never stale.
+  const [mttd, setMttd] = useState<number | null>(null);
 
   // MTTR: escalation → resolved
   const mttr = escalationTime !== null && resolvedTime !== null
@@ -235,9 +250,15 @@ export default function Page() {
 
         {decision.status === "escalate" && (
           <div style={{ marginTop: "0.75rem" }}>
-            <p style={{ color: "darkorange", fontWeight: "bold", margin: "0 0 0.75rem" }}>
-              ⚠ Escalate — ranked remediation proposals:
+            <p style={{ color: "darkorange", fontWeight: "bold", margin: "0 0 0.5rem" }}>
+              ⚠ Escalate
             </p>
+            {decision.reasons.length > 0 && (
+              <ul style={{ margin: "0 0 0.75rem", paddingLeft: "1.2rem", fontSize: "0.9em", color: "#57606a" }}>
+                {decision.reasons.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            )}
+            <p style={{ fontWeight: 600, margin: "0 0 0.5rem", fontSize: "0.9em" }}>Ranked remediation proposals:</p>
             {decision.proposals.map((p, i) => (
               <div key={i} className="card" style={{ marginBottom: "0.5rem" }}>
                 <strong>#{i + 1} {p.action}</strong>
