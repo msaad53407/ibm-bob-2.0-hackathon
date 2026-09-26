@@ -91,16 +91,20 @@ services:
       proxy:
         condition: service_healthy
 
-  # web:
-  #   build: ./apps/web
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
-  #     NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-  #     AGENT_URL: http://agent:8003
-  #   depends_on:
-  #     proxy:
-  #       condition: service_healthy
-  #     agent:
-  #       condition: service_healthy
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_AGENT_URL: http://localhost:8003
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_AGENT_URL: http://localhost:8003
+      AGENT_URL: http://agent:8003
+    depends_on:
+      - proxy
+      - agent

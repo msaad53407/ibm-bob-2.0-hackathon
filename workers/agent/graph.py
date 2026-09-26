@@ -8,6 +8,7 @@ Re-exports keep `from graph import run_decision, ...` working.
 """
 import _paths  # noqa: F401 — ensures shared/ is importable
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from log_row import now_iso  # noqa: E402
 
 from criticality import bob_criticality
@@ -50,11 +51,23 @@ __all__ = [
 
 app = FastAPI(title="guardrail-agent")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 def health():
     return {"ok": True}
 
+
+def _p95(values: list[float]) -> float:
+    """Return the 95th-percentile value from a non-empty list."""
+    s = sorted(values)
+    idx = max(0, int(len(s) * 0.95) - 1)
+    return s[idx]
 
 @app.post("/decide", response_model=DecideOut)
 def decide():
