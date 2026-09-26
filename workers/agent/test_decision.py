@@ -9,6 +9,7 @@ import unittest
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-key")
+os.environ.setdefault("ADMIN_TOKEN", "test-admin-token-1234")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shared"))

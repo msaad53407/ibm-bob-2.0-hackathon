@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     supabase_url: AnyHttpUrl
     supabase_service_key: str
+    admin_token: str
     proxy_admin_url: AnyHttpUrl = "http://proxy:8080/admin/route"  # type: ignore[assignment]
     port: int = 8003
     latency_degradation_factor: float = SPEC_LATENCY_FACTOR
@@ -19,6 +20,13 @@ class Settings(BaseSettings):
     def _key_not_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("SUPABASE_SERVICE_KEY must not be empty")
+        return v
+
+    @field_validator("admin_token")
+    @classmethod
+    def _token_not_empty(cls, v: str) -> str:
+        if not v or not v.strip() or len(v.strip()) < 16:
+            raise ValueError("ADMIN_TOKEN must be at least 16 chars")
         return v
 
 
@@ -31,6 +39,7 @@ except Exception as exc:
 
 SUPABASE_URL = str(cfg.supabase_url)
 SUPABASE_KEY = cfg.supabase_service_key
+ADMIN_TOKEN = cfg.admin_token
 PROXY_ADMIN_URL = str(cfg.proxy_admin_url).rstrip("/")
 LATENCY_DEGRADATION_FACTOR = cfg.latency_degradation_factor
 PORT = cfg.port

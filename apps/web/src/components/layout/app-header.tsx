@@ -3,6 +3,7 @@
 import { RiMenuLine } from "@remixicon/react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { UserMenu } from "@/components/auth/user-menu";
 
 interface AppHeaderProps {
   title: string;
@@ -16,6 +17,7 @@ export function AppHeader({ title }: AppHeaderProps) {
       </SidebarTrigger>
       <Separator orientation="vertical" className="h-4" />
       <span className="text-sm font-medium">{title}</span>
+      <UserMenu />
     </header>
   );
 }

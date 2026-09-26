@@ -7,9 +7,11 @@ env in settings.py. This module only wires them to HTTP.
 Re-exports keep `from graph import run_decision, ...` working.
 """
 import _paths  # noqa: F401 — ensures shared/ is importable
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+import hmac
+from fastapi import Depends, FastAPI, Header, HTTPException
 from log_row import now_iso  # noqa: E402
+
+from settings import ADMIN_TOKEN
 
 from criticality import bob_criticality
 from decision import (
@@ -51,16 +53,24 @@ __all__ = [
 
 app = FastAPI(title="guardrail-agent")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware (Slice B): browsers reach the agent only through the
+# web server's same-origin /api/agent/* forwarders, so cross-origin browser
+# access is intentionally unsupported. Server-to-server calls are unaffected.
 
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+def verify_admin(authorization: str | None = Header(default=None)) -> None:
+    """Shared-secret Bearer gate for mutating/decision routes (Slice A).
+
+    /health and read-only history stay open; POST /decide, /propose,
+    /execute require ADMIN_TOKEN. Comparison is timing-safe.
+    """
+    expected = f"Bearer {ADMIN_TOKEN}"
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def _p95(values: list[float]) -> float:
@@ -70,7 +80,7 @@ def _p95(values: list[float]) -> float:
     return s[idx]
 
 @app.post("/decide", response_model=DecideOut)
-def decide():
+def decide(_: None = Depends(verify_admin)):
     """Fetches rows + criticality, delegates to the Decision module."""
     rows = fetch_recent_rows(sb())
     crit = bob_criticality()
@@ -79,7 +89,7 @@ def decide():
 
 
 @app.post("/propose", response_model=ProposalSet)
-def propose():
+def propose(_: None = Depends(verify_admin)):
     """Ranked, persisted set the dashboard approves against."""
     return current_proposal_set()
 
@@ -97,7 +107,7 @@ def audit_history():
 
 
 @app.post("/execute")
-def execute(a: Approve):
+def execute(a: Approve, _: None = Depends(verify_admin)):
     """Gated Traffic flip via the Proxy adapter, outcome to Audit trail."""
     reason = approve_execution(get_proposal_set(sb(), a.proposal_id), a.target)
     if reason is not None:

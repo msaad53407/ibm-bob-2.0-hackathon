@@ -28,11 +28,11 @@ def record_audit(client, approver: str, target: str, status_code: int, proposal_
     }).execute()
 
 
-def save_proposals(client, verdict: str, proposals: list[dict]) -> int | None:
+def save_proposals(client, verdict: str, proposals: list[dict], reasons: list[str] | None = None) -> int | None:
     """Persist the ranked set, return its id for approval."""
     try:
         data = client.table("proposals").insert(
-            {"verdict": verdict, "proposals": proposals}
+            {"verdict": verdict, "proposals": proposals, "reasons": reasons or []}
         ).execute().data
         return data[0]["id"] if data else None
     except Exception:

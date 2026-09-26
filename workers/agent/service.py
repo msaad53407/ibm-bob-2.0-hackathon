@@ -25,5 +25,5 @@ def current_proposal_set() -> ProposalSet:
     crit = bob_criticality()
     verdict, reasons = decide_from_data(rows, crit, now_iso())
     proposals = build_proposals(verdict, reasons)
-    pid = save_proposals(sb(), verdict, proposals)
+    pid = save_proposals(sb(), verdict, proposals, reasons)
     return ProposalSet(id=pid, verdict=verdict, reasons=reasons, proposals=proposals)

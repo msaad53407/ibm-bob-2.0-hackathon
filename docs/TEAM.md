@@ -52,5 +52,12 @@ proposals, human click executes a real flip, audit row is append-only, timers ru
 ## Run
 
 1. `cp .env.example .env`, fill `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`.
-2. Apply `supabase/migrations/0001_init.sql` to the cloud project.
-3. `docker compose up --build`. Web `:3000`, proxy `:8080`, agent `:8003`.
+2. Generate the service-to-service secret: `openssl rand -hex 32` → `ADMIN_TOKEN` in `.env` (server-only, never `NEXT_PUBLIC_`).
+3. Apply migrations: `supabase db push` (or paste `supabase/migrations/` into the SQL editor).
+4. Seed your admin: `insert into admins (email) values ('you@example.com');`
+5. `docker compose up --build`. Only web `:3000` is public; proxy/agent are internal-only.
+6. Open `:3000` → `/login` (password, sign-up, or magic link) → dashboard. `/execute` records your email as approver.
+
+Auth notes: Supabase Auth → admin allowlist (`admins` table, migration `0005`).
+Service writes use the service key (bypass RLS); anon reads/writes are denied.
+For demo smoothness, disable "Confirm email" in Supabase Auth settings or create users under Auth → Users.

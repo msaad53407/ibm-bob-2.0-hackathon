@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/providers/query-provider";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { AuthProvider } from "@/components/auth/auth-provider";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -40,12 +40,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="min-h-full flex flex-col">
         <QueryProvider>
+          <AuthProvider>
           <TooltipProvider>
-            <SidebarProvider>
-              {children}
-            </SidebarProvider>
+            {children}
             <Toaster richColors position="bottom-right" />
           </TooltipProvider>
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>

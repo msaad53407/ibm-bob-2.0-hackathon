@@ -27,6 +27,23 @@ export interface UseLogsResult {
   refresh: () => void;
 }
 
+/** Shared query behind initial load and manual refresh. */
+async function queryLogs(service: string | undefined): Promise<LogRow[]> {
+  let query = getSupabase()
+    .from("logs")
+    .select("*")
+    .order("timestamp", { ascending: false })
+    .limit(INITIAL_LIMIT);
+
+  if (service) {
+    query = query.eq("service", service);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data as LogRow[]) ?? [];
+}
+
 export function useLogs({
   service,
   maxRows = 500,
@@ -34,9 +51,15 @@ export function useLogs({
   const [rows, setRows] = useState<LogRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Stable ref so the realtime callback always has the latest maxRows
+  // Latest cap for the realtime callback (assigned inside the effect below,
+  // never during render).
   const maxRowsRef = useRef(maxRows);
-  maxRowsRef.current = maxRows;
+  // Monotonic counter so every subscribe gets a FRESH channel topic.
+  // supabase-js reuses channel objects by topic: sharing "logs-realtime"
+  // across hook instances (stable/canary/all on Verification) or across a
+  // StrictMode remount calls .on() on an already-subscribed channel, which
+  // throws "cannot add postgres_changes callbacks ... after subscribe()".
+  const channelSeq = useRef(0);
 
   function append(incoming: LogRow[]) {
     setRows((prev) => {
@@ -45,24 +68,12 @@ export function useLogs({
     });
   }
 
+  // Manual refresh (event handler) — full loading-state cycle.
   async function fetchInitial() {
     setIsLoading(true);
     setError(null);
     try {
-      const sb = getSupabase();
-      let query = sb
-        .from("logs")
-        .select("*")
-        .order("timestamp", { ascending: false })
-        .limit(INITIAL_LIMIT);
-
-      if (service) {
-        query = query.eq("service", service);
-      }
-
-      const { data, error: sbError } = await query;
-      if (sbError) throw sbError;
-      setRows((data as LogRow[]) ?? []);
+      setRows(await queryLogs(service));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load logs");
     } finally {
@@ -71,12 +82,33 @@ export function useLogs({
   }
 
   useEffect(() => {
-    void fetchInitial();
+    maxRowsRef.current = maxRows;
+    let cancelled = false;
 
-    // Subscribe to new inserts
+    // Initial load: state updates only settle after the await below,
+    // never synchronously in the effect body.
+    void (async () => {
+      try {
+        const initial = await queryLogs(service);
+        if (cancelled) return;
+        setRows(initial);
+        setError(null);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load logs");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    // Subscribe to new inserts on a unique topic per effect run —
+    // never reuse a topic that may still be subscribed (see above).
     const sb = getSupabase();
+    channelSeq.current += 1;
+    const topic = `logs-realtime-${service ?? "all"}-${channelSeq.current}`;
     const channel = sb
-      .channel("logs-realtime")
+      .channel(topic)
       .on(
         "postgres_changes",
         {
@@ -92,6 +124,7 @@ export function useLogs({
       .subscribe();
 
     return () => {
+      cancelled = true;
       void sb.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

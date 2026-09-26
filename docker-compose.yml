@@ -33,14 +33,15 @@ services:
     build:
       context: .
       dockerfile: services/proxy/Dockerfile
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     environment:
       STABLE_URL: http://stable:8000
       CANARY_URL: http://canary:8000
       PORT: 8080
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 5s
@@ -73,12 +74,13 @@ services:
     build:
       context: ./workers
       dockerfile: agent/Dockerfile
-    ports:
-      - "8003:8003"
+    expose:
+      - "8003"
     environment:
       PORT: 8003
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
       PROXY_ADMIN_URL: http://proxy:8080/admin/route
       BOB_SHELL: bob-shell
     healthcheck:
@@ -97,14 +99,23 @@ services:
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        # NEXT_PUBLIC_* vars are baked in at build time by Next.js — the runtime
+        # environment block below has no effect on them. The browser reaches
+        # Supabase directly but talks to the agent/proxy via same-origin
+        # /api/* Route Handlers (Slice A), so these localhost fallbacks are only
+        # for local non-compose dev. Change them for remote deployments.
         NEXT_PUBLIC_AGENT_URL: http://localhost:8003
+        NEXT_PUBLIC_PROXY_URL: http://localhost:8080
     ports:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       NEXT_PUBLIC_AGENT_URL: http://localhost:8003
+      NEXT_PUBLIC_PROXY_URL: http://localhost:8080
       AGENT_URL: http://agent:8003
+      PROXY_BASE_URL: http://proxy:8080
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
     depends_on:
       - proxy
       - agent

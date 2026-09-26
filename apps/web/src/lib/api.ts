@@ -1,7 +1,7 @@
 /**
  * Agent API client. All calls go through these typed wrappers.
- * Base URL is read from NEXT_PUBLIC_AGENT_URL (client-side) or
- * AGENT_URL (server actions), falling back to localhost:8003.
+ * Browser calls same-origin /api/agent/* (Next Route Handler injects
+ * ADMIN_TOKEN server-side); server code uses internal AGENT_URL directly.
  */
 import type {
   AuditRow,
@@ -13,11 +13,12 @@ import type {
 } from "@/types/guardrail";
 
 function agentBase(): string {
-  // Server-side (Route Handlers / Server Actions) uses the internal Docker URL
+  // Server-side (Route Handlers / Server Actions) uses the internal Docker URL.
+  // Browser uses the same-origin forwarder so ADMIN_TOKEN never leaves the server.
   if (typeof window === "undefined") {
     return process.env.AGENT_URL ?? "http://localhost:8003";
   }
-  return process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8003";
+  return "/api/agent";
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -67,9 +68,11 @@ export function postExecute(body: ApproveBody): Promise<ExecuteOut> {
 
 /** GET proxy /admin/route — current routing target */
 export function getProxyRoute(): Promise<ProxyRoute> {
-  const proxyBase =
-    typeof window === "undefined"
-      ? (process.env.PROXY_ADMIN_URL ?? "http://proxy:8080")
-      : (process.env.NEXT_PUBLIC_PROXY_URL ?? "http://localhost:8080");
-  return fetch(`${proxyBase}/admin/route`).then((r) => r.json());
+  // Server-side: use the internal Docker base URL directly (GET stays open).
+  // Browser: same-origin forwarder (keeps working once proxy ports close).
+  if (typeof window === "undefined") {
+    const proxyBase = process.env.PROXY_BASE_URL ?? "http://proxy:8080";
+    return fetch(`${proxyBase}/admin/route`).then((r) => r.json());
+  }
+  return fetch("/api/proxy/route").then((r) => r.json());
 }

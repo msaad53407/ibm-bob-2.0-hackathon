@@ -10,6 +10,7 @@ import {
   getHealth,
   getProposals,
   getAudit,
+  getProxyRoute,
   postDecide,
   postPropose,
   postExecute,
@@ -33,11 +34,11 @@ export function useProxyRoute() {
   return useQuery({
     queryKey: queryKeys.proxyRoute,
     queryFn: async () => {
-      const proxyUrl =
-        process.env.NEXT_PUBLIC_PROXY_URL ?? "http://localhost:8080";
-      const res = await fetch(`${proxyUrl}/admin/route`);
-      if (!res.ok) throw new Error("Proxy unreachable");
-      return res.json() as Promise<{ target: "stable" | "canary" }>;
+      const data = await getProxyRoute();
+      if (data.target !== "stable" && data.target !== "canary") {
+        throw new Error("Proxy unreachable");
+      }
+      return data;
     },
     refetchInterval: 10_000,
   });

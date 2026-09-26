@@ -1,0 +1,13 @@
+# Context: ./apps/web — keep the build context to source + lockfiles only.
+node_modules
+.next
+*.tsbuildinfo
+dist
+build
+coverage
+.turbo
+.env*
+*.log
+.git
+.vscode
+.idea
