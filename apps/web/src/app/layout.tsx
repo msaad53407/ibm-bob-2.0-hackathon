@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthProvider } from "@/components/auth/auth-provider";
 
 const jetbrainsMono = JetBrains_Mono({
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={cn(
         "h-full antialiased",
         geistSans.variable,
@@ -39,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       )}
     >
       <body className="min-h-full flex flex-col">
+        <ThemeProvider>
         <QueryProvider>
           <AuthProvider>
           <TooltipProvider>
@@ -47,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </TooltipProvider>
           </AuthProvider>
         </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

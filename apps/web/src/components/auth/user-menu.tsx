@@ -11,7 +11,7 @@ export function UserMenu() {
   if (loading || !user) return null;
 
   return (
-    <div className="ml-auto flex items-center gap-2">
+    <div className="flex items-center gap-2">
       <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
         <RiUserLine className="size-3.5" />
         {user.email}

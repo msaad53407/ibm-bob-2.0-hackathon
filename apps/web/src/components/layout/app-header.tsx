@@ -3,6 +3,7 @@
 import { RiMenuLine } from "@remixicon/react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { UserMenu } from "@/components/auth/user-menu";
 
 interface AppHeaderProps {
@@ -17,7 +18,10 @@ export function AppHeader({ title }: AppHeaderProps) {
       </SidebarTrigger>
       <Separator orientation="vertical" className="h-4" />
       <span className="text-sm font-medium">{title}</span>
-      <UserMenu />
+      <div className="ml-auto flex items-center gap-1">
+        <ThemeToggle />
+        <UserMenu />
+      </div>
     </header>
   );
 }
