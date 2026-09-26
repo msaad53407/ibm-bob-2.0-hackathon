@@ -23,6 +23,11 @@ type Log = {
   status_code: number; latency_ms: number; error_message: string | null;
 };
 
+type AuditRow = {
+  id: number; created_at: string;
+  approver: string; action: string; outcome: string;
+};
+
 type Proposal = {
   action: string; risk: number; blast_radius: string;
   reversibility: string; execute: { target: "stable" | "canary" } | null;
@@ -41,6 +46,13 @@ type ApproveState =
   | { status: "done"; target: string }
   | { status: "failed"; message: string };
 
+// Separate state for the manual override card so it doesn't pollute the proposal card
+type ManualApproveState =
+  | { status: "idle" }
+  | { status: "executing" }
+  | { status: "done"; target: string }
+  | { status: "failed"; message: string };
+
 /** Format milliseconds as "Xs" or "Xm Ys" */
 function fmtMs(ms: number): string {
   const s = Math.round(ms / 1000);
@@ -49,8 +61,12 @@ function fmtMs(ms: number): string {
 
 export default function Page() {
   const [logs, setLogs] = useState<Log[]>([]);
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
   const [decision, setDecision] = useState<DecisionState>({ status: "idle" });
+  // Proposal card approval (flip triggered from a ranked proposal)
   const [approveState, setApproveState] = useState<ApproveState>({ status: "idle" });
+  // Manual override buttons (independent of proposal approval)
+  const [manualState, setManualState] = useState<ManualApproveState>({ status: "idle" });
 
   // Timer state
   const [escalationTime, setEscalationTime] = useState<number | null>(null);
@@ -60,13 +76,25 @@ export default function Page() {
 
   useEffect(() => {
     const sb = getSupabase();
+    // Logs — live
     sb.from("logs").select("*").order("timestamp", { ascending: false }).limit(50)
       .then(({ data }) => data && setLogs(data as Log[]));
-    const ch = sb.channel("logs-live")
+    const chLogs = sb.channel("logs-live")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "logs" },
         (p) => setLogs((prev) => [p.new as Log, ...prev].slice(0, 50)))
       .subscribe();
-    return () => { void sb.removeChannel(ch); };
+    // Audit — live
+    sb.from("audit").select("id, created_at, approver, action, outcome")
+      .order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => data && setAuditRows(data as AuditRow[]));
+    const chAudit = sb.channel("audit-live")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "audit" },
+        (p) => setAuditRows((prev) => [p.new as AuditRow, ...prev].slice(0, 20)))
+      .subscribe();
+    return () => {
+      void sb.removeChannel(chLogs);
+      void sb.removeChannel(chAudit);
+    };
   }, []);
 
   // Start ticking when escalation is detected, stop when resolved
@@ -103,7 +131,8 @@ export default function Page() {
     }
   }, []);
 
-  async function approve(target: string) {
+  // Called from proposal card — contributes to MTTR
+  async function approveProposal(target: string) {
     if (approveState.status === "executing") return;
     setApproveState({ status: "executing" });
     try {
@@ -121,12 +150,35 @@ export default function Page() {
     }
   }
 
-  // MTTD: earliest canary anomaly in existing logs → escalation detection time
+  // Called from manual override card — does NOT affect MTTR or proposal state
+  async function approveManual(target: string) {
+    if (manualState.status === "executing") return;
+    setManualState({ status: "executing" });
+    try {
+      const res = await fetch(`${AGENT}/execute`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, approver: "human" }),
+      });
+      if (!res.ok) throw new Error(`/execute returned ${res.status}`);
+      const { ok } = await res.json();
+      if (!ok) throw new Error("proxy flip reported not ok");
+      setManualState({ status: "done", target });
+    } catch (e) {
+      setManualState({ status: "failed", message: String(e) });
+    }
+  }
+
+  // MTTD: earliest canary anomaly in the most-recent runner batch → escalation time.
+  // "Batch" = within 5 min of the newest log in state (avoids stale historical rows
+  // inflating MTTD across multiple demo runs without relying on browser wall-clock).
   const mttd = (() => {
-    if (escalationTime === null) return null;
+    if (escalationTime === null || logs.length === 0) return null;
+    const newestLog = Math.max(...logs.map(l => new Date(l.timestamp).getTime()));
+    const batchWindowStart = newestLog - 5 * 60 * 1000;
     const anomalies = logs.filter(l =>
-      (l.service === "canary") &&
-      (l.status_code >= 500 || l.latency_ms > 500)
+      l.service === "canary" &&
+      (l.status_code >= 500 || l.latency_ms > 500) &&
+      new Date(l.timestamp).getTime() >= batchWindowStart
     );
     if (anomalies.length === 0) return null;
     const earliest = Math.min(...anomalies.map(l => new Date(l.timestamp).getTime()));
@@ -198,16 +250,16 @@ export default function Page() {
                       <td style={td}>Executable</td>
                       <td style={td}>
                         {p.execute ? (
-                          <button
-                            onClick={() => approve(p.execute!.target)}
-                            disabled={approveState.status === "executing"}
-                            style={{ marginLeft: 0 }}
-                          >
-                            {approveState.status === "executing"
-                              ? "Executing…"
-                              : `Approve — flip to ${p.execute.target}`}
-                          </button>
-                        ) : "display only"}
+                         <button
+                           onClick={() => approveProposal(p.execute!.target)}
+                           disabled={approveState.status === "executing"}
+                           style={{ marginLeft: 0 }}
+                         >
+                           {approveState.status === "executing"
+                             ? "Executing…"
+                             : `Approve — flip to ${p.execute.target}`}
+                         </button>
+                       ) : "display only"}
                       </td>
                     </tr>
                   </tbody>
@@ -233,22 +285,51 @@ export default function Page() {
       <div className="card">
         <h3>Approval checkpoint (human gate)</h3>
         <button
-          onClick={() => approve("stable")}
-          disabled={approveState.status === "executing"}
+          onClick={() => approveManual("stable")}
+          disabled={manualState.status === "executing"}
         >Flip to stable (rollback)</button>{" "}
         <button
-          onClick={() => approve("canary")}
-          disabled={approveState.status === "executing"}
+          onClick={() => approveManual("canary")}
+          disabled={manualState.status === "executing"}
         >Flip to canary</button>
-        {approveState.status === "done" && (
+        {manualState.status === "done" && (
           <p style={{ color: "green", marginTop: "0.5rem" }}>
-            ✓ Flipped to <strong>{approveState.target}</strong>. Audit row recorded.
+            ✓ Flipped to <strong>{manualState.target}</strong>. Audit row recorded.
           </p>
         )}
-        {approveState.status === "failed" && (
+        {manualState.status === "failed" && (
           <p style={{ color: "red", marginTop: "0.5rem" }}>
-            ✗ Execution failed: {approveState.message}
+            ✗ Execution failed: {manualState.message}
           </p>
+        )}
+      </div>
+
+      {/* Audit trail */}
+      <div className="card">
+        <h3>Audit trail (append-only)</h3>
+        {auditRows.length === 0 ? (
+          <p style={{ color: "#57606a", fontSize: "0.9em" }}>No audit entries yet — approve a flip to create one.</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85em" }}>
+            <thead>
+              <tr>
+                <th style={th}>Time</th>
+                <th style={th}>Action</th>
+                <th style={th}>Approver</th>
+                <th style={th}>Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditRows.map((row) => (
+                <tr key={row.id}>
+                  <td style={td}>{new Date(row.created_at).toLocaleTimeString()}</td>
+                  <td style={td}><strong>{row.action}</strong></td>
+                  <td style={td}>{row.approver}</td>
+                  <td style={{ ...td, color: row.outcome.includes("200") ? "green" : "darkorange" }}>{row.outcome}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -264,4 +345,8 @@ export default function Page() {
 import type { CSSProperties } from "react";
 const td: CSSProperties = {
   padding: "2px 8px 2px 0", verticalAlign: "top", fontSize: "0.9em",
+};
+const th: CSSProperties = {
+  padding: "2px 8px 4px 0", verticalAlign: "bottom", fontWeight: 600,
+  borderBottom: "1px solid #e5e7eb", textAlign: "left", color: "#57606a",
 };
