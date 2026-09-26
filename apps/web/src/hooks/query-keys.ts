@@ -9,4 +9,6 @@ export const queryKeys = {
   proposalSet: (id: number) => ["proposals", id] as const,
   audit: ["audit"] as const,
   logs: (limit?: number) => ["logs", limit ?? 200] as const,
+  targets: ["targets"] as const,
+  targetCases: (id: string) => ["targets", id, "cases"] as const,
 } as const;

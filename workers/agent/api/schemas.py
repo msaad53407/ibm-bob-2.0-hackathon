@@ -12,6 +12,11 @@ class DecideOut(BaseModel):
     reasons: list[str]
 
 
+class TargetBody(BaseModel):
+    """Optional scope: absent/None → demo traffic; uuid → external target."""
+    target_id: str | None = None
+
+
 class ProposalSet(BaseModel):
     id: int | None
     verdict: str
@@ -23,6 +28,7 @@ class Approve(BaseModel):
     target: Target
     approver: str = "human"
     proposal_id: int  # required: Execution accepts only approved Proposal IDs
+    target_id: str | None = None  # carried into the audit row; flip stays proxy-scoped
 
     @field_validator("approver")
     @classmethod

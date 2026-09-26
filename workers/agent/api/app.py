@@ -26,7 +26,7 @@ from adapters.store import (
     save_proposals,
     sb,
 )
-from api.schemas import Approve, DecideOut, ProposalSet, Target
+from api.schemas import Approve, DecideOut, ProposalSet, Target, TargetBody
 from config.settings import ADMIN_TOKEN
 from domain.criticality import bob_criticality
 from domain.decision import (
@@ -51,7 +51,7 @@ __all__ = [
     "decide_from_data", "current_proposal_set", "decide_via_graph", "run_analysis",
     "fetch_recent_rows", "flip_proxy", "record_audit",
     "save_proposals", "list_proposals", "list_audit", "get_proposal_set",
-    "DecideOut", "ProposalSet", "Approve", "Target",
+    "DecideOut", "ProposalSet", "Approve", "Target", "TargetBody",
     "MIN_SAMPLES", "RECENT_WINDOW_SECONDS", "RECENT_FETCH_LIMIT",
 ]
 
@@ -63,18 +63,24 @@ app = FastAPI(title="guardrail-agent")
 
 # ── HTTP-facing helpers (stable signatures, workflow-backed) ────────────────
 
-def current_proposal_set() -> ProposalSet:
+def current_proposal_set(target_id: str | None = None) -> ProposalSet:
     """Fetch once, then Decision + Proposal + persistence — via the graph."""
-    out = run_analysis(persist=True)
+    try:
+        out = run_analysis(persist=True, target_id=target_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ProposalSet(
         id=out.get("proposal_id"), verdict=out["verdict"],
         reasons=out["reasons"], proposals=out["proposals"],
     )
 
 
-def decide_via_graph() -> tuple[str, list[str]]:
+def decide_via_graph(target_id: str | None = None) -> tuple[str, list[str]]:
     """Analyze without persisting (/decide): same graph, persist=False."""
-    out = run_analysis(persist=False)
+    try:
+        out = run_analysis(persist=False, target_id=target_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return out["verdict"], out["reasons"]
 
 
@@ -95,16 +101,16 @@ def verify_admin(authorization: str | None = Header(default=None)) -> None:
 
 
 @app.post("/decide", response_model=DecideOut)
-def decide(_: None = Depends(verify_admin)):
+def decide(body: TargetBody | None = None, _: None = Depends(verify_admin)):
     """Analyze via the LangGraph workflow (no persistence)."""
-    verdict, reasons = decide_via_graph()
+    verdict, reasons = decide_via_graph(body.target_id if body else None)
     return {"verdict": verdict, "reasons": reasons}
 
 
 @app.post("/propose", response_model=ProposalSet)
-def propose(_: None = Depends(verify_admin)):
+def propose(body: TargetBody | None = None, _: None = Depends(verify_admin)):
     """Ranked, persisted set the dashboard approves against."""
-    return current_proposal_set()
+    return current_proposal_set(body.target_id if body else None)
 
 
 @app.get("/proposals", response_model=list[dict])
@@ -126,5 +132,5 @@ def execute(a: Approve, _: None = Depends(verify_admin)):
     if reason is not None:
         raise HTTPException(status_code=422, detail=reason)
     status_code = flip_proxy(a.target)
-    record_audit(sb(), a.approver, a.target, status_code, a.proposal_id)
+    record_audit(sb(), a.approver, a.target, status_code, a.proposal_id, a.target_id)
     return {"ok": status_code == 200, "target": a.target}

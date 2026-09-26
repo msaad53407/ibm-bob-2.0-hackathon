@@ -36,6 +36,6 @@ def build():
 workflow = build()
 
 
-def run_analysis(persist: bool) -> dict:
+def run_analysis(persist: bool, target_id: str | None = None) -> dict:
     """Run one full pass. persist=True saves the proposal set (/propose)."""
-    return workflow.invoke({"persist": persist})
+    return workflow.invoke({"persist": persist, "target_id": target_id})

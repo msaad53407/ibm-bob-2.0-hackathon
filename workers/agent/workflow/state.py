@@ -11,6 +11,7 @@ class AgentState(TypedDict, total=False):
     # Control
     persist: bool            # True for /propose (save set), False for /decide
     now: str                 # ISO timestamp for windowing (caller-supplied)
+    target_id: str | None    # None → demo traffic; uuid → external target
 
     # Fetch node output
     rows: list[dict]         # raw recent rows from Supabase

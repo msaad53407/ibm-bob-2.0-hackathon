@@ -66,6 +66,8 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek/deepseek-v4.1-flash}
       PORT: 8004
       RUN_ONCE: "false"
       RUN_ON_START: "true"
@@ -93,7 +95,9 @@ services:
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       PROXY_ADMIN_URL: http://proxy:8080/admin/route
-      BOB_SHELL: bob-shell
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      TYPESAFE_API_BASE: ${TYPESAFE_API_BASE:-https://api.typesafe.ai}
+      JEV_MODEL: ${JEV_MODEL:-jev-latest}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 5s

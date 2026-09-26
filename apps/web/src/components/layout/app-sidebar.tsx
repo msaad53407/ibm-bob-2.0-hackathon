@@ -8,6 +8,7 @@ import {
   RiShieldCheckLine,
   RiHistoryLine,
   RiShieldLine,
+  RiPlugLine,
 } from "@remixicon/react";
 import {
   Sidebar,
@@ -38,6 +39,11 @@ const navItems = [
     title: "Decision & Proposals",
     href: "/proposals",
     icon: RiFlowChart,
+  },
+  {
+    title: "External Targets",
+    href: "/targets",
+    icon: RiPlugLine,
   },
   {
     title: "Audit Trail",

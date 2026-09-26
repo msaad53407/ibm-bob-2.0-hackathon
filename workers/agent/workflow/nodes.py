@@ -8,19 +8,26 @@ import _paths  # noqa: F401 — ensures shared/ is importable (Docker + repo lay
 from log_row import now_iso  # noqa: E402
 
 from adapters.jev import ask_jev, build_questions, merge_verdict, summarize_traffic
-from adapters.store import fetch_recent_rows, save_proposals, sb
+from adapters.store import fetch_recent_rows, get_target_inventory, save_proposals, sb
 from config.settings import LATENCY_DEGRADATION_FACTOR
-from domain.criticality import bob_criticality
+from domain.criticality import bob_criticality, criticality_from_inventory
 from domain.decision import build_proposals, run_decision, within_window
 from workflow.state import AgentState
 
 
 def fetch_rows(state: AgentState) -> dict:
-    """Load recent logs + criticality map into the state."""
+    """Load target-scoped rows + matching criticality map into the state."""
     client = sb()
+    target_id = state.get("target_id")
+    crit = bob_criticality()
+    if target_id:
+        inventory = get_target_inventory(client, target_id)
+        if inventory is None:
+            raise ValueError(f"unknown target_id: {target_id}")
+        crit = criticality_from_inventory(inventory)
     return {
-        "rows": fetch_recent_rows(client),
-        "crit": bob_criticality(),
+        "rows": fetch_recent_rows(client, target_id=target_id),
+        "crit": crit,
         "now": state.get("now") or now_iso(),
     }
 
@@ -53,7 +60,8 @@ def propose(state: AgentState) -> dict:
     """Build the ranked set; persist only when the caller asked (/propose)."""
     proposals = build_proposals(state.get("verdict", "keep"), state.get("reasons", []))
     proposal_id = (
-        save_proposals(sb(), state["verdict"], proposals, state.get("reasons", []))
+        save_proposals(sb(), state["verdict"], proposals, state.get("reasons", []),
+                       target_id=state.get("target_id"))
         if state.get("persist")
         else None
     )

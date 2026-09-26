@@ -29,12 +29,22 @@ export async function POST(req: NextRequest) {
   if (!token) {
     return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
   }
+  // Optional { target_id } passes through for external-target runs;
+  // absent body preserves the demo-batch behavior.
+  let body: string | undefined;
+  try {
+    const raw = await req.text();
+    body = raw || undefined;
+  } catch {
+    body = undefined;
+  }
   const upstream = await fetch(`${TRAFFIC_RUNNER_URL}/run`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
+    body,
   });
   const text = await upstream.text();
   return new NextResponse(text, {

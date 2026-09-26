@@ -11,6 +11,9 @@ import {
   getProposals,
   getAudit,
   getProxyRoute,
+  listTargets,
+  listTargetCases,
+  createTarget,
   postDecide,
   postPropose,
   postExecute,
@@ -65,10 +68,10 @@ export function useAudit() {
 
 // ── Decide mutation ───────────────────────────────────────────────────────────
 
-export function useDecide() {
+export function useDecide(target_id?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: postDecide,
+    mutationFn: () => postDecide(target_id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.proposals });
     },
@@ -80,10 +83,10 @@ export function useDecide() {
 
 // ── Propose mutation ──────────────────────────────────────────────────────────
 
-export function usePropose() {
+export function usePropose(target_id?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: postPropose,
+    mutationFn: () => postPropose(target_id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.proposals });
     },
@@ -116,9 +119,9 @@ export function useExecute() {
 
 // ── Traffic run (probe batch) mutation ──────────────────────────────────────
 
-export function useTrafficRun() {
+export function useTrafficRun(target_id?: string | null) {
   return useMutation({
-    mutationFn: postTrafficRun,
+    mutationFn: () => postTrafficRun(target_id),
     onSuccess: (data) => {
       toast.success(`Traffic run wrote ${data.rows} rows`, {
         description: "New logs stream in live — then Run Decision.",
@@ -126,6 +129,40 @@ export function useTrafficRun() {
     },
     onError: (err) => {
       toast.error(`Traffic run failed: ${err.message}`);
+    },
+  });
+}
+
+// ── External targets (BYO-API) ──────────────────────────────────────────────
+
+export function useTargets() {
+  return useQuery({
+    queryKey: queryKeys.targets,
+    queryFn: listTargets,
+  });
+}
+
+export function useTargetCases(target_id: string | null) {
+  return useQuery({
+    queryKey: queryKeys.targetCases(target_id ?? ""),
+    queryFn: () => listTargetCases(target_id!),
+    enabled: !!target_id,
+  });
+}
+
+export function useCreateTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createTarget,
+    onSuccess: (data) => {
+      toast.success(
+        `Target connected — ${data.endpoints} endpoints, ${data.synth_cases + data.llm_cases} cases`,
+        { description: data.llm_cases > 0 ? "Includes LLM-generated edge cases." : "Deterministic cases (LLM unavailable)." },
+      );
+      void qc.invalidateQueries({ queryKey: queryKeys.targets });
+    },
+    onError: (err) => {
+      toast.error(`Connect failed: ${err.message}`);
     },
   });
 }

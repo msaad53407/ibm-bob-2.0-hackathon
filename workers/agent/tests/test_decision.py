@@ -29,6 +29,7 @@ from domain.decision import (  # noqa: E402
     run_decision,
     within_window,
 )
+from domain.criticality import bob_criticality, criticality_from_inventory  # noqa: E402
 from adapters.jev import ask_jev, build_questions, merge_verdict, summarize_traffic  # noqa: E402
 from workflow.edges import should_assess  # noqa: E402
 
@@ -229,6 +230,33 @@ class TestWorkflowRouting(unittest.TestCase):
 
     def test_skips_assess_without_rows(self):
         self.assertEqual(should_assess({"windowed": []}), "merge")
+
+
+class TestTargetCriticality(unittest.TestCase):
+    def test_methods_map_to_tiers(self):
+        inv = [
+            {"method": "POST", "path_template": "/checkout"},
+            {"method": "GET", "path_template": "/search"},
+            {"method": "DELETE", "path_template": "/users/{id}"},
+        ]
+        crit = criticality_from_inventory(inv)
+        self.assertIn("/checkout", crit["critical"])
+        self.assertIn("/search", crit["high"])
+        # Templated paths reduce to their static prefix for prefix-matching.
+        self.assertIn("/users/", crit["critical"])
+        self.assertEqual(crit["source"], "target-spec")
+
+    def test_skips_bad_entries(self):
+        crit = criticality_from_inventory([
+            {"method": "GET", "path_template": "nope"},
+            {"method": "GET", "path_template": "/ok"},
+            "junk",
+        ])
+        self.assertEqual(crit, {"critical": [], "high": ["/ok"], "source": "target-spec"})
+
+    def test_static_map_unchanged(self):
+        crit = bob_criticality()
+        self.assertIn("/checkout", crit["critical"])
 
 
 if __name__ == "__main__":

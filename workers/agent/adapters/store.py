@@ -14,25 +14,41 @@ def sb():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def fetch_recent_rows(client, limit: int = RECENT_FETCH_LIMIT) -> list[dict]:
-    """Newest-first log rows for the Decision module."""
-    return client.table("logs").select("*").order("timestamp", desc=True).limit(limit).execute().data
+def fetch_recent_rows(client, limit: int = RECENT_FETCH_LIMIT,
+                      target_id: str | None = None) -> list[dict]:
+    """Newest-first log rows for the Decision module.
+
+    target_id None → demo traffic (rows with NULL target_id); otherwise
+    only rows tagged for that external target. Scoping keeps demo and
+    third-party traffic from contaminating each other's verdicts.
+    """
+    q = client.table("logs").select("*")
+    if target_id:
+        q = q.eq("target_id", target_id)
+    else:
+        q = q.is_("target_id", "null")
+    return q.order("timestamp", desc=True).limit(limit).execute().data
 
 
-def record_audit(client, approver: str, target: str, status_code: int, proposal_id: int | None = None) -> None:
+def record_audit(client, approver: str, target: str, status_code: int,
+                 proposal_id: int | None = None, target_id: str | None = None) -> None:
     """Append-only record of the Execution outcome."""
     client.table("audit").insert({
         "approver": approver, "action": f"flip to {target}",
         "outcome": f"proxy={status_code}",
         "proposal": {"target": target, "proposal_id": proposal_id},
+        "target_id": target_id,
     }).execute()
 
 
-def save_proposals(client, verdict: str, proposals: list[dict], reasons: list[str] | None = None) -> int | None:
+def save_proposals(client, verdict: str, proposals: list[dict],
+                   reasons: list[str] | None = None,
+                   target_id: str | None = None) -> int | None:
     """Persist the ranked set, return its id for approval."""
     try:
         data = client.table("proposals").insert(
-            {"verdict": verdict, "proposals": proposals, "reasons": reasons or []}
+            {"verdict": verdict, "proposals": proposals, "reasons": reasons or [],
+             "target_id": target_id}
         ).execute().data
         return data[0]["id"] if data else None
     except Exception:
@@ -63,5 +79,17 @@ def get_proposal_set(client, proposal_id: int) -> dict | None:
     try:
         data = client.table("proposals").select("*").eq("id", proposal_id).execute().data
         return data[0] if data else None
+    except Exception:
+        return None
+
+
+def get_target_inventory(client, target_id: str) -> list[dict] | None:
+    """Endpoint inventory stored at registration, or None when unknown."""
+    try:
+        data = client.table("target_pairs").select("inventory").eq("id", target_id).execute().data
+        if not data:
+            return None
+        inv = data[0].get("inventory")
+        return inv if isinstance(inv, list) else None
     except Exception:
         return None

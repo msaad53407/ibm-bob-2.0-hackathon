@@ -8,8 +8,12 @@ import type {
   ApproveBody,
   DecideOut,
   ExecuteOut,
+  ProbeCase,
   ProposalSet,
   ProxyRoute,
+  TargetCreateResult,
+  TargetPair,
+  TrafficRunResult,
 } from "@/types/guardrail";
 
 function agentBase(): string {
@@ -39,13 +43,19 @@ export function getHealth(): Promise<{ ok: boolean }> {
 }
 
 /** POST /decide — triggers Decision module, returns verdict + reasons */
-export function postDecide(): Promise<DecideOut> {
-  return apiFetch<DecideOut>("/decide", { method: "POST" });
+export function postDecide(target_id?: string | null): Promise<DecideOut> {
+  return apiFetch<DecideOut>("/decide", {
+    method: "POST",
+    body: JSON.stringify({ target_id: target_id ?? null }),
+  });
 }
 
 /** POST /propose — Decision + Proposals + persist, returns ProposalSet */
-export function postPropose(): Promise<ProposalSet> {
-  return apiFetch<ProposalSet>("/propose", { method: "POST" });
+export function postPropose(target_id?: string | null): Promise<ProposalSet> {
+  return apiFetch<ProposalSet>("/propose", {
+    method: "POST",
+    body: JSON.stringify({ target_id: target_id ?? null }),
+  });
 }
 
 /** GET /proposals — recent proposal sets, newest first */
@@ -66,16 +76,56 @@ export function postExecute(body: ApproveBody): Promise<ExecuteOut> {
   });
 }
 
-/** POST /api/traffic/run — fire one CASES x SERVICES probe batch */
-export function postTrafficRun(): Promise<{ ok: boolean; rows: number; by_service: Record<string, number> }> {
+/** POST /api/traffic/run — fire a probe batch (demo, or target_id for external) */
+export function postTrafficRun(target_id?: string | null): Promise<TrafficRunResult> {
   // Traffic forwarder lives outside /api/agent/* (separate service).
-  return fetch("/api/traffic/run", { method: "POST" }).then(async (res) => {
+  return fetch("/api/traffic/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_id: target_id ?? null }),
+  }).then(async (res) => {
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
       throw new Error(`Traffic run → ${res.status}: ${text}`);
     }
     return res.json();
   });
+}
+
+// ── External targets (BYO-API): same-origin /api/runner/* forwarder ─────────
+
+async function runnerFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api/runner${path}`, {
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    ...init,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Runner ${path} → ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** GET /api/runner/targets — pairs owned by the signed-in admin */
+export function listTargets(): Promise<TargetPair[]> {
+  return runnerFetch<TargetPair[]>("/targets");
+}
+
+/** POST /api/runner/targets — connect URLs + OpenAPI spec, get cases back */
+export function createTarget(body: {
+  stable_url: string;
+  canary_url: string;
+  spec_text: string;
+}): Promise<TargetCreateResult> {
+  return runnerFetch<TargetCreateResult>("/targets", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** GET /api/runner/targets/{id}/cases — stored generated cases */
+export function listTargetCases(target_id: string): Promise<ProbeCase[]> {
+  return runnerFetch<ProbeCase[]>(`/targets/${target_id}/cases`);
 }
 
 /** GET proxy /admin/route — current routing target */

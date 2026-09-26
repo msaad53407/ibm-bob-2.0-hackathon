@@ -16,6 +16,8 @@ const INITIAL_LIMIT = 200;
 export interface UseLogsOptions {
   /** Filter to a single service (e.g. "stable" | "canary") */
   service?: string;
+  /** Scope to one external target (id), "demo" for demo traffic, or omit for all */
+  targetId?: string | "demo";
   /** Max rows to keep in memory (oldest shed first) */
   maxRows?: number;
 }
@@ -28,7 +30,10 @@ export interface UseLogsResult {
 }
 
 /** Shared query behind initial load and manual refresh. */
-async function queryLogs(service: string | undefined): Promise<LogRow[]> {
+async function queryLogs(
+  service: string | undefined,
+  targetId: string | "demo" | undefined,
+): Promise<LogRow[]> {
   let query = getSupabase()
     .from("logs")
     .select("*")
@@ -38,6 +43,11 @@ async function queryLogs(service: string | undefined): Promise<LogRow[]> {
   if (service) {
     query = query.eq("service", service);
   }
+  if (targetId === "demo") {
+    query = query.is("target_id", null);
+  } else if (targetId) {
+    query = query.eq("target_id", targetId);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
@@ -46,6 +56,7 @@ async function queryLogs(service: string | undefined): Promise<LogRow[]> {
 
 export function useLogs({
   service,
+  targetId,
   maxRows = 500,
 }: UseLogsOptions = {}): UseLogsResult {
   const [rows, setRows] = useState<LogRow[]>([]);
@@ -67,7 +78,7 @@ export function useLogs({
     setIsLoading(true);
     setError(null);
     try {
-      setRows(await queryLogs(service));
+      setRows(await queryLogs(service, targetId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load logs");
     } finally {
@@ -83,7 +94,7 @@ export function useLogs({
     // never synchronously in the effect body.
     void (async () => {
       try {
-        const initial = await queryLogs(service);
+        const initial = await queryLogs(service, targetId);
         if (cancelled) return;
         setRows(initial);
         setError(null);
@@ -103,8 +114,11 @@ export function useLogs({
     // per-instance counter is NOT enough — two hook instances (or a
     // StrictMode remount before async removeChannel finishes) generate the
     // same name and collide on one live channel. Random suffix = no reuse.
+    // NOTE: postgres_changes supports ONE filter per subscription — service
+    // and target can't combine server-side, so the target filter applies to
+    // the initial query and the callback double-checks incoming rows.
     const sb = getSupabase();
-    const topic = `logs-realtime-${service ?? "all"}-${crypto.randomUUID().slice(0, 8)}`;
+    const topic = `logs-realtime-${service ?? "all"}-${targetId ?? "any"}-${crypto.randomUUID().slice(0, 8)}`;
     const channel = sb
       .channel(topic)
       .on(
@@ -116,7 +130,10 @@ export function useLogs({
           ...(service ? { filter: `service=eq.${service}` } : {}),
         },
         (payload) => {
-          append([payload.new as LogRow]);
+          const row = payload.new as LogRow;
+          if (targetId === "demo" && row.target_id !== null) return;
+          if (targetId && targetId !== "demo" && row.target_id !== targetId) return;
+          append([row]);
         },
       )
       .subscribe();
@@ -126,7 +143,7 @@ export function useLogs({
       void sb.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [service]);
+  }, [service, targetId]);
 
   return { rows, isLoading, error, refresh: fetchInitial };
 }

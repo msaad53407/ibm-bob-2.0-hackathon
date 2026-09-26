@@ -17,6 +17,7 @@ import {
   usePropose,
   useExecute,
   useProposals,
+  useTargets,
 } from "@/hooks/use-agent-queries";
 import type { ProposalItem, ProposalSet } from "@/types/guardrail";
 
@@ -49,8 +50,10 @@ interface ProposalCardProps {
   proposal: ProposalItem;
   proposalSetId: number;
   rank: number;
-  onExecute: (target: "stable" | "canary") => void;
+  /** Null in advisory mode (external targets): no traffic control available. */
+  onExecute: ((target: "stable" | "canary") => void) | null;
   isPending: boolean;
+  advisory?: boolean;
 }
 
 function ProposalCard({
@@ -58,8 +61,9 @@ function ProposalCard({
   rank,
   onExecute,
   isPending,
+  advisory = false,
 }: ProposalCardProps) {
-  const isExecutable = proposal.execute !== null;
+  const isExecutable = proposal.execute !== null && onExecute !== null;
 
   return (
     <div className="rounded border bg-card p-4 space-y-3">
@@ -87,7 +91,7 @@ function ProposalCard({
           </div>
         </div>
 
-        {isExecutable ? (
+        {isExecutable && onExecute ? (
           <Button
             size="sm"
             variant="default"
@@ -101,7 +105,7 @@ function ProposalCard({
         ) : (
           <Badge variant="outline" className="shrink-0 text-[10px]">
             <RiInformationLine className="size-3" />
-            Informational
+            {advisory && proposal.execute !== null ? "Advisory" : "Informational"}
           </Badge>
         )}
       </div>
@@ -114,9 +118,10 @@ function ProposalCard({
 interface ProposalSetBlockProps {
   set: ProposalSet;
   isLatest: boolean;
+  advisory: boolean;
 }
 
-function ProposalSetBlock({ set, isLatest }: ProposalSetBlockProps) {
+function ProposalSetBlock({ set, isLatest, advisory }: ProposalSetBlockProps) {
   const { mutate: execute, isPending } = useExecute();
 
   function handleExecute(target: "stable" | "canary") {
@@ -174,8 +179,9 @@ function ProposalSetBlock({ set, isLatest }: ProposalSetBlockProps) {
               proposal={p}
               proposalSetId={set.id!}
               rank={i + 1}
-              onExecute={handleExecute}
+              onExecute={advisory ? null : handleExecute}
               isPending={isPending}
+              advisory={advisory}
             />
           ))}
         </div>
@@ -193,26 +199,52 @@ function ProposalSetBlock({ set, isLatest }: ProposalSetBlockProps) {
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-export function ProposalsView() {
+export function ProposalsView({ targetId }: { targetId?: string | null }) {
   const { data: proposals, isLoading, refetch, isFetching } = useProposals();
-  const { mutate: propose, isPending: isProposing } = usePropose();
+  const { mutate: propose, isPending: isProposing } = usePropose(targetId);
+  const { data: targets } = useTargets();
+  const advisory = !!targetId;
+
+  const visible = (proposals ?? []).filter((s) =>
+    targetId ? s.target_id === targetId : !s.target_id,
+  );
 
   return (
     <div className="flex flex-col gap-6">
       {/* Actions bar */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-xs text-muted-foreground">
-          Run the Decision module to generate a new ranked Proposal set.
-          Approve a Proposal to execute the Traffic flip immediately.
+          {advisory
+            ? "Advisory verdict for the connected pair — recommendations only, no traffic control."
+            : "Run the Decision module to generate a new ranked Proposal set. Approve a Proposal to execute the Traffic flip immediately."}
         </p>
-        <Button
-          size="sm"
-          onClick={() => propose()}
-          disabled={isProposing || isFetching}
-        >
-          <RiFlashlightLine className="size-3.5" />
-          {isProposing ? "Running…" : "Run Decision"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Traffic scope"
+            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+            value={targetId ?? ""}
+            onChange={(e) => {
+              const v = e.target.value || null;
+              const url = v ? `/proposals?target=${v}` : "/proposals";
+              window.location.assign(url);
+            }}
+          >
+            <option value="">Demo traffic</option>
+            {(targets ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.stable_url} ↔ {t.canary_url}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            onClick={() => propose()}
+            disabled={isProposing || isFetching}
+          >
+            <RiFlashlightLine className="size-3.5" />
+            {isProposing ? "Running…" : "Run Decision"}
+          </Button>
+        </div>
       </div>
 
       <Separator />
@@ -224,7 +256,7 @@ export function ProposalsView() {
             <Skeleton key={i} className="h-36 w-full" />
           ))}
         </div>
-      ) : !proposals?.length ? (
+      ) : !visible.length ? (
         <div className="py-16 text-center">
           <p className="text-sm text-muted-foreground">
             No decisions yet — click <strong>Run Decision</strong> to start.
@@ -232,10 +264,10 @@ export function ProposalsView() {
         </div>
       ) : (
         <div className="space-y-6">
-          {proposals.map((set, idx) => (
+          {visible.map((set, idx) => (
             <div key={set.id ?? idx}>
-              <ProposalSetBlock set={set} isLatest={idx === 0} />
-              {idx < proposals.length - 1 && <Separator className="mt-6" />}
+              <ProposalSetBlock set={set} isLatest={idx === 0} advisory={advisory} />
+              {idx < visible.length - 1 && <Separator className="mt-6" />}
             </div>
           ))}
         </div>

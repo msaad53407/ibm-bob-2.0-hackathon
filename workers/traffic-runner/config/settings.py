@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     supabase_url: AnyHttpUrl
     supabase_service_key: str
     admin_token: str
+    openrouter_api_key: str = ""
+    llm_model: str = "deepseek/deepseek-v4.1-flash"
+    llm_timeout_seconds: float = 60.0
     port: int = 8004
     run_once: bool = False
     run_on_start: bool = True
@@ -43,6 +46,9 @@ CANARY = str(cfg.canary_url).rstrip("/")
 SUPABASE_URL = str(cfg.supabase_url)
 SUPABASE_KEY = cfg.supabase_service_key
 ADMIN_TOKEN = cfg.admin_token
+OPENROUTER_API_KEY = cfg.openrouter_api_key.strip()
+LLM_MODEL = cfg.llm_model.strip() or "deepseek/deepseek-v4.1-flash"
+LLM_TIMEOUT = cfg.llm_timeout_seconds
 PORT = cfg.port
 RUN_ONCE = cfg.run_once
 RUN_ON_START = cfg.run_on_start

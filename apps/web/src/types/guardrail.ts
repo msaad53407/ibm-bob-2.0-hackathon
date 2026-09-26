@@ -13,6 +13,7 @@ export type LogRow = {
   error_message: string | null;
   note: string | null;
   trace_id: string;
+  target_id: string | null;
 };
 
 export type Verdict = "keep" | "escalate";
@@ -32,6 +33,7 @@ export type ProposalSet = {
   reasons: string[];
   proposals: ProposalItem[];
   created_at?: string;
+  target_id?: string | null;
 };
 
 /** POST /decide response */
@@ -70,6 +72,42 @@ export type ApproveBody = {
   target: "stable" | "canary";
   approver: string;
   proposal_id: number;
+  target_id?: string | null;
+};
+
+/** External target pair (BYO-API). can_flip is always false: advisory only. */
+export type TargetPair = {
+  id: string;
+  owner_email: string;
+  stable_url: string;
+  canary_url: string;
+  can_flip: boolean;
+  created_at: string;
+};
+
+/** Generated probe case for a target. */
+export type ProbeCase = {
+  method: string;
+  path: string;
+  body: Record<string, unknown> | null;
+  tier: string;
+  source: "synth" | "llm";
+};
+
+/** POST /targets response */
+export type TargetCreateResult = {
+  target_id: string;
+  endpoints: number;
+  synth_cases: number;
+  llm_cases: number;
+};
+
+/** POST /run response */
+export type TrafficRunResult = {
+  ok: boolean;
+  rows: number;
+  by_service: Record<string, number>;
+  target_id: string | null;
 };
 
 export const VERDICT_LABELS: Record<string, string> = {
