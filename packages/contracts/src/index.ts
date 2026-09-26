@@ -1,10 +1,14 @@
-export type LogRow = {
-  timestamp: string; service: string; endpoint: string;
-  status_code: number; latency_ms: number;
-  error_message: string | null; trace_id: string;
-};
-export type Verdict = "keep" | "escalate";
-export type Proposal = {
-  action: string; risk: number; blast_radius: string;
-  reversibility: string; execute: { target: "stable" | "canary" } | null;
-};
+// Barrel: preserves `import { X } from "@guardrail/contracts"`.
+// New code may import service-name.js / log-row.js / proposal.js directly.
+export { ServiceName } from "./service-name.js";
+export type { ServiceNameValue } from "./service-name.js";
+export {
+  ERROR_THRESHOLD,
+  ERROR_MSG_MAX_LEN,
+  isError,
+  errorMessage,
+  nowIso,
+  makeLogRow,
+} from "./log-row.js";
+export type { LogRow, MakeLogRowInput } from "./log-row.js";
+export type { Verdict, Proposal } from "./proposal.js";

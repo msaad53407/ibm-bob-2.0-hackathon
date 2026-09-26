@@ -1,30 +1,23 @@
 import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
-import { createClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
+import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
+import { ServiceName } from "@guardrail/contracts";
+import { parseEnv } from "./config.js";
+import { createSupabaseClient } from "./supabase.js";
+import { createLogger } from "./logger.js";
 
-const PORT = Number(process.env.PORT ?? 8080);
-const STABLE_URL = process.env.STABLE_URL ?? "http://stable:8000";
-const CANARY_URL = process.env.CANARY_URL ?? "http://canary:8000";
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+// ── Proxy module: route + flip behind one interface ─────────────────────────
+
+const env = parseEnv(process.env);
+
+const PORT = env.PORT;
+const targets = { stable: env.STABLE_URL, canary: env.CANARY_URL };
+
+const logger = createLogger(
+  createSupabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY)
+);
 
 let target = "stable";
-const targets = { stable: STABLE_URL, canary: CANARY_URL };
-
-const supabase =
-  SUPABASE_URL && SUPABASE_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_KEY)
-    : null;
-
-async function logRow(row) {
-  if (!supabase) return;
-  try {
-    await supabase.from("logs").insert(row);
-  } catch {
-    // never block proxying on logging
-  }
-}
+const getTarget = () => target;
 
 const app = express();
 app.use(express.json());
@@ -36,44 +29,22 @@ app.get("/admin/route", (_req, res) => res.json({ target }));
 // Execution endpoint: the only promote/rollback mechanism (ADR-0002)
 app.post("/admin/route", async (req, res) => {
   const next = req.body?.target;
-  if (next !== "stable" && next !== "canary") {
+  if (next !== ServiceName.STABLE && next !== ServiceName.CANARY) {
     return res.status(400).json({ error: 'target must be "stable" | "canary"' });
   }
   target = next;
-  await logRow({
-    timestamp: new Date().toISOString(),
-    service: "proxy",
-    endpoint: "/admin/route",
-    status_code: 200,
-    latency_ms: 0,
-    error_message: `traffic flip to ${target}`,
-    trace_id: randomUUID(),
-  });
+  await logger.logFlip(target);
   res.json({ target });
 });
 
-app.use(async (req, res, next) => {
-  const started = Date.now();
-  const traceId = randomUUID();
-  res.on("finish", () => {
-    void logRow({
-      timestamp: new Date().toISOString(),
-      service: `proxy->${target}`,
-      endpoint: req.originalUrl,
-      status_code: res.statusCode,
-      latency_ms: Date.now() - started,
-      error_message: res.statusCode >= 500 ? `proxy saw ${res.statusCode}` : null,
-      trace_id: traceId,
-    });
-  });
-  next();
-});
+app.use(logger.trafficMiddleware(getTarget));
 
 app.use(
   "/",
   createProxyMiddleware({
     router: () => targets[target],
     changeOrigin: true,
+    on: { proxyReq: fixRequestBody },
     logger: console,
   })
 );

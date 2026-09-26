@@ -1,7 +1,7 @@
 {
   "name": "guardrail",
   "private": true,
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.15.1",
   "workspaces": [
     "apps/*",
     "services/proxy",
@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "turbo": "^2.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^7.0.0"
   },
   "engines": {
     "node": ">=20"

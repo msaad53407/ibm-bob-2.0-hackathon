@@ -1,0 +1,508 @@
+
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Track A — End-to-End Walkthrough</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; background: #f7f8fa; color: #1f2328; font-size: 14px; line-height: 1.6; }
+  main { max-width: 860px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+  /* Header */
+  .page-header { border-bottom: 1px solid #e5e7eb; padding-bottom: 1.25rem; margin-bottom: 2.5rem; }
+  .page-header h1 { font-size: 1.6rem; font-weight: 700; color: #1f2328; }
+  .page-header p { color: #57606a; margin-top: .3rem; font-size: .875rem; }
+  .legend { display: flex; gap: 1.25rem; margin-top: .9rem; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: .4rem; font-size: .75rem; color: #57606a; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  /* Step layout */
+  .step { display: grid; grid-template-columns: 48px 1fr; gap: 0 1.25rem; margin-bottom: 2.5rem; }
+  .step-num { display: flex; flex-direction: column; align-items: center; }
+  .step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; flex-shrink: 0; color: #fff; }
+  .step-line { width: 2px; flex: 1; background: #e5e7eb; margin-top: 6px; }
+  .step:last-of-type .step-line { display: none; }
+  .step-body { padding-bottom: 1rem; }
+  .step-title { font-size: 1rem; font-weight: 700; color: #1f2328; margin-bottom: .25rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .step-sub { font-size: .8rem; color: #57606a; margin-bottom: .75rem; }
+  .tag { display: inline-block; font-size: .68rem; font-weight: 600; padding: .15rem .5rem; border-radius: 999px; letter-spacing: .03em; }
+  .tag-proxy   { background: #dbeafe; color: #1d4ed8; }
+  .tag-runner  { background: #fef9c3; color: #854d0e; }
+  .tag-demo    { background: #dcfce7; color: #166534; }
+  .tag-agent   { background: #ede9fe; color: #5b21b6; }
+  .tag-db      { background: #fee2e2; color: #991b1b; }
+  .tag-compose { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+
+  /* Diagram boxes */
+  .diagram { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: .85rem; overflow-x: auto; }
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; min-width: max-content; }
+  .box { border: 1.5px solid #e5e7eb; border-radius: 7px; padding: .45rem .85rem; font-size: .75rem; font-weight: 600; text-align: center; white-space: nowrap; background: #f7f8fa; }
+  .box-proxy  { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+  .box-runner { background: #fefce8; border-color: #fde047; color: #713f12; }
+  .box-demo   { background: #f0fdf4; border-color: #86efac; color: #166534; }
+  .box-agent  { background: #f5f3ff; border-color: #c4b5fd; color: #5b21b6; }
+  .box-db     { background: #fff1f2; border-color: #fca5a5; color: #991b1b; }
+  .box-env    { background: #f8fafc; border-color: #cbd5e1; color: #334155; }
+  .box-deep   { background: #0f172a; border-color: #3b82f6; color: #bfdbfe; }
+  .arrow { font-size: 1.1rem; color: #9ca3af; margin: 0 .25rem; flex-shrink: 0; }
+  .arrow-label { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .arrow-label span { font-size: .65rem; color: #9ca3af; }
+
+  /* Code blocks */
+  pre { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: .9rem 1.1rem; font-size: .75rem; line-height: 1.65; overflow-x: auto; margin-bottom: .75rem; }
+  .hl-key   { color: #93c5fd; }
+  .hl-val   { color: #86efac; }
+  .hl-str   { color: #fde68a; }
+  .hl-num   { color: #f9a8d4; }
+  .hl-cmt   { color: #475569; font-style: italic; }
+  .hl-err   { color: #fca5a5; }
+  .hl-ok    { color: #6ee7b7; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  th { background: #f1f5f9; color: #334155; font-weight: 600; text-align: left; padding: .5rem .75rem; border-bottom: 2px solid #e5e7eb; }
+  td { padding: .45rem .75rem; border-bottom: 1px solid #f1f5f9; color: #1f2328; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .badge-err  { background: #fee2e2; color: #991b1b; border-radius: 4px; padding: .1rem .4rem; font-weight: 600; font-size: .7rem; }
+  .badge-ok   { background: #dcfce7; color: #166534; border-radius: 4px; padding: .1rem .4rem; font-weight: 600; font-size: .7rem; }
+  .badge-slow { background: #fef9c3; color: #854d0e; border-radius: 4px; padding: .1rem .4rem; font-weight: 600; font-size: .7rem; }
+
+  /* Callout */
+  .callout { border-radius: 8px; padding: .75rem 1rem; margin-bottom: .75rem; font-size: .8rem; line-height: 1.55; }
+  .callout-blue   { background: #eff6ff; border-left: 3px solid #3b82f6; color: #1e40af; }
+  .callout-green  { background: #f0fdf4; border-left: 3px solid #22c55e; color: #166534; }
+  .callout-yellow { background: #fefce8; border-left: 3px solid #eab308; color: #713f12; }
+  .callout-red    { background: #fff1f2; border-left: 3px solid #ef4444; color: #991b1b; }
+  .callout-purple { background: #f5f3ff; border-left: 3px solid #8b5cf6; color: #4c1d95; }
+
+  /* Two-col grid */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  @media (max-width: 620px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Section divider */
+  .section-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: #9ca3af; font-weight: 600; margin-bottom: .6rem; }
+
+  /* Footer */
+  footer { text-align: center; font-size: .72rem; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 1.25rem; margin-top: 3rem; }
+</style>
+</head>
+<body>
+<main>
+
+
+<div class="page-header">
+  <h1>Track A — End-to-End Walkthrough</h1>
+  <p>From <code>docker compose up</code> to a Supabase log row, using a concrete example: canary <code>POST /checkout</code> returns 500.</p>
+  <div class="legend">
+    <div class="legend-item"><span class="dot" style="background:#3b82f6"></span> proxy (Node.js :8080)</div>
+    <div class="legend-item"><span class="dot" style="background:#eab308"></span> traffic-runner (Python)</div>
+    <div class="legend-item"><span class="dot" style="background:#22c55e"></span> api-demo (FastAPI :8000)</div>
+    <div class="legend-item"><span class="dot" style="background:#8b5cf6"></span> agent (FastAPI :8003)</div>
+    <div class="legend-item"><span class="dot" style="background:#ef4444"></span> Supabase (logs table)</div>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#334155">1</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-compose">docker compose up</span> Startup &amp; env validation</div>
+    <div class="step-sub">Every service validates its environment variables before binding a port.</div>
+
+    <div class="diagram">
+      <div class="section-label">Startup order (healthcheck-gated)</div>
+      <div class="flow">
+        <div class="box box-demo">stable<br /><span style="font-weight:400;font-size:.68rem">BUG_PROFILE=stable</span></div>
+        <div class="arrow">→</div>
+        <div class="box box-demo">canary<br /><span style="font-weight:400;font-size:.68rem">BUG_PROFILE=canary</span></div>
+        <div class="arrow">→</div>
+        <div class="box box-proxy">proxy<br /><span style="font-weight:400;font-size:.68rem">:8080</span></div>
+        <div class="arrow">→</div>
+        <div class="box box-runner">runner<br /><span style="font-weight:400;font-size:.68rem">fires once</span></div>
+        <div class="arrow" style="color:#e5e7eb">│</div>
+        <div class="box box-agent">agent<br /><span style="font-weight:400;font-size:.68rem">:8003</span></div>
+      </div>
+      <div style="margin-top:.6rem;font-size:.72rem;color:#57606a">Each arrow is a <strong>condition: service_healthy</strong> gate — the next service only starts after the previous one passes its <code>/health</code> check.</div>
+    </div>
+
+    <div class="two-col">
+      <div class="callout callout-blue">
+        <strong>Proxy (zod)</strong> — fails immediately if <code>SUPABASE_URL</code> or <code>SUPABASE_SERVICE_KEY</code> are missing, before Express binds port 8080.
+      </div>
+      <div class="callout callout-purple">
+        <strong>Agent / Runner (pydantic-settings)</strong> — <code>Settings()</code> raises <code>ValidationError</code> at import time; the process prints the offending fields and exits 1.
+      </div>
+    </div>
+
+    <pre><span class="hl-cmt"># What you see in the terminal if SUPABASE_URL is not set:</span>
+<span class="hl-err">❌  Missing or invalid environment variables:</span>
+
+<span class="hl-err">  SUPABASE_URL: SUPABASE_URL must be a valid URL</span>
+<span class="hl-err">  SUPABASE_SERVICE_KEY: SUPABASE_SERVICE_KEY is required</span></pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#3b82f6">2</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-proxy">proxy</span> Live traffic routing — default is stable</div>
+    <div class="step-sub">The proxy starts with <code>target = "stable"</code>. All browser/curl traffic to <code>:8080</code> is forwarded to the stable api-demo container.</div>
+
+    <div class="diagram">
+      <div class="flow">
+        <div class="box">curl :8080/checkout</div>
+        <div class="arrow">→</div>
+        <div class="box box-proxy">proxy<br /><span style="font-weight:400;color:#3b82f6">target=stable</span></div>
+        <div class="arrow-label"><div class="arrow">→</div><span>routes to</span></div>
+        <div class="box box-demo" style="border-color:#86efac">stable<br />:8000</div>
+        <div class="arrow" style="color:#e5e7eb">⤳</div>
+        <div class="box box-demo" style="opacity:.35">canary<br />:8000</div>
+      </div>
+    </div>
+
+    <div class="callout callout-blue">
+      To flip to canary: <code>POST :8080/admin/route</code> with <code>{"target": "canary"}</code>. The proxy writes a <code>service="proxy"</code> log row to Supabase recording the flip, then all subsequent traffic goes to the canary container.
+    </div>
+
+    <pre><span class="hl-key">GET</span>  <span class="hl-str">/admin/route</span>        <span class="hl-cmt">→ {"target": "stable"}</span>
+<span class="hl-key">POST</span> <span class="hl-str">/admin/route</span>        <span class="hl-cmt">body: {"target": "canary"}</span>
+                        <span class="hl-cmt">→ {"target": "canary"}  +  logs flip row to Supabase</span></pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#eab308">3</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-runner">traffic-runner</span> Side-by-side synthetic verification</div>
+    <div class="step-sub">The runner fires 4 identical test cases <em>directly</em> at both stable and canary (bypassing the proxy). This gives a clean A/B comparison with no routing interference.</div>
+
+    <div class="diagram">
+      <div class="section-label">4 test cases × 2 services = 8 requests</div>
+      <div class="flow" style="gap:.4rem">
+        <div class="box box-runner" style="padding:.5rem 1rem">runner</div>
+        <div style="display:flex;flex-direction:column;gap:.3rem;margin:0 .5rem">
+          <div class="arrow" style="margin:0;font-size:.85rem">→ stable:8000</div>
+          <div class="arrow" style="margin:0;font-size:.85rem">→ canary:8000</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.3rem">
+          <div class="box box-demo" style="font-size:.7rem">GET /search?q=normal</div>
+          <div class="box box-demo" style="font-size:.7rem">GET /search?q=edge</div>
+          <div class="box box-demo" style="font-size:.7rem">POST /checkout {item_id:"a"}</div>
+          <div class="box box-demo" style="font-size:.7rem;border-color:#fca5a5;background:#fff1f2;color:#991b1b">POST /checkout {}  ← bug trigger</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout callout-yellow">
+      <strong>Case 4 — the edge case:</strong> <code>POST /checkout</code> with an empty body. Stable returns <code>400 Bad Request</code> (correct). Canary returns <code>500 Internal Server Error</code> (planted bug). The runner records both.
+    </div>
+
+    <pre><span class="hl-cmt"># Inside runner.py — make_log_row() is called for every response</span>
+<span class="hl-key">make_log_row</span>(
+    service  = ServiceName.<span class="hl-val">CANARY</span>,      <span class="hl-cmt"># "canary"</span>
+    endpoint = <span class="hl-str">"/checkout"</span>,
+    status_code = <span class="hl-num">500</span>,
+    latency_ms  = <span class="hl-num">6</span>,
+    error_text  = <span class="hl-str">'{"error":"boom: item_id missing"}'</span>,
+)
+<span class="hl-cmt"># produces →</span>
+{
+    <span class="hl-str">"timestamp"</span>:     <span class="hl-val">"2026-09-26T00:00:01.123Z"</span>,
+    <span class="hl-str">"service"</span>:       <span class="hl-val">"canary"</span>,
+    <span class="hl-str">"endpoint"</span>:      <span class="hl-val">"/checkout"</span>,
+    <span class="hl-str">"status_code"</span>:   <span class="hl-num">500</span>,
+    <span class="hl-str">"latency_ms"</span>:    <span class="hl-num">6</span>,
+    <span class="hl-str">"error_message"</span>: <span class="hl-val">'{"error":"boom: item_id missing"}'</span>,
+    <span class="hl-str">"trace_id"</span>:      <span class="hl-val">"a1b2c3d4-..."</span>,
+}</pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#22c55e">4</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-demo">api-demo</span> The two planted bugs in action</div>
+    <div class="step-sub">Both stable and canary run the same FastAPI image — only <code>BUG_PROFILE</code> differs. The bugs are deterministic.</div>
+
+    <div class="two-col">
+      <div>
+        <div class="section-label">Bug 1 — POST /checkout (5xx)</div>
+        <pre style="font-size:.7rem"><span class="hl-key">if</span> not body.item_id:
+    <span class="hl-key">if</span> BUG_PROFILE == <span class="hl-str">"canary"</span>:
+        <span class="hl-cmt"># 500 ← planted bug</span>
+        <span class="hl-key">return</span> JSONResponse(
+            status_code=<span class="hl-num">500</span>,
+            content={<span class="hl-str">"error"</span>: <span class="hl-str">"boom"</span>}
+        )
+    <span class="hl-cmt"># 400 ← correct stable behaviour</span>
+    response.status_code = <span class="hl-num">400</span>
+    <span class="hl-key">return</span> {<span class="hl-str">"error"</span>: <span class="hl-str">"item_id required"</span>}</pre>
+      </div>
+      <div>
+        <div class="section-label">Bug 2 — GET /search (+800ms)</div>
+        <pre style="font-size:.7rem"><span class="hl-key">async def</span> search(q: str = <span class="hl-str">"x"</span>):
+    <span class="hl-key">if</span> BUG_PROFILE == <span class="hl-str">"canary"</span>:
+        <span class="hl-cmt"># +800ms latency ← planted bug</span>
+        <span class="hl-key">await</span> asyncio.sleep(<span class="hl-num">0.8</span>)
+    <span class="hl-key">return</span> {
+        <span class="hl-str">"profile"</span>: BUG_PROFILE,
+        <span class="hl-str">"q"</span>: q,
+        <span class="hl-str">"results"</span>: [q],
+    }</pre>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:.5rem">What the runner actually sees (all 8 rows)</div>
+    <div class="diagram" style="padding:.75rem">
+      <table>
+        <thead>
+          <tr><th>service</th><th>endpoint</th><th>status</th><th>latency_ms</th><th>error_message</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>stable</td><td>/search?q=normal</td><td><span class="badge-ok">200</span></td><td>~8</td><td>—</td></tr>
+          <tr><td>canary</td><td>/search?q=normal</td><td><span class="badge-ok">200</span></td><td><span class="badge-slow">~820</span></td><td>—</td></tr>
+          <tr><td>stable</td><td>/search?q=edge</td><td><span class="badge-ok">200</span></td><td>~7</td><td>—</td></tr>
+          <tr><td>canary</td><td>/search?q=edge</td><td><span class="badge-ok">200</span></td><td><span class="badge-slow">~815</span></td><td>—</td></tr>
+          <tr><td>stable</td><td>/checkout</td><td><span class="badge-ok">200</span></td><td>~5</td><td>—</td></tr>
+          <tr><td>canary</td><td>/checkout</td><td><span class="badge-ok">200</span></td><td>~6</td><td>—</td></tr>
+          <tr><td>stable</td><td>/checkout</td><td><span class="badge-ok">400</span></td><td>~4</td><td>—</td></tr>
+          <tr><td>canary</td><td>/checkout</td><td><span class="badge-err">500</span></td><td>~5</td><td>"boom: item_id missing"</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#ef4444">5</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-db">Supabase</span> All 8 rows land in the <code>logs</code> table</div>
+    <div class="step-sub">The runner does a single batch insert. The proxy also inserts a row for every request it proxies — including the flip event.</div>
+
+    <div class="diagram">
+      <div class="flow">
+        <div class="box box-runner">runner<br /><span style="font-weight:400;font-size:.68rem">batch insert 8 rows</span></div>
+        <div class="arrow">→</div>
+        <div class="box box-db">logs table<br /><span style="font-weight:400;font-size:.68rem">Supabase</span></div>
+        <div class="arrow" style="color:#e5e7eb">←</div>
+        <div class="box box-proxy">proxy<br /><span style="font-weight:400;font-size:.68rem">fire-and-forget per request</span></div>
+      </div>
+      <div style="margin-top:.5rem;font-size:.72rem;color:#57606a">
+        Runner rows: <code>service = "stable"</code> or <code>"canary"</code>  · 
+        Proxy rows: <code>service = "proxy-&gt;stable"</code> or <code>"proxy-&gt;canary"</code>  · 
+        Flip rows: <code>service = "proxy"</code>
+      </div>
+    </div>
+
+    <div class="callout callout-red">
+      <strong>DB CHECK constraint</strong> (migration 0002) enforces that <code>service</code> is always one of <code>'stable'</code>, <code>'canary'</code>, <code>'proxy'</code>, or <code>'proxy-&gt;*'</code>. A writer using a wrong string is rejected by Postgres, not silently stored.
+    </div>
+
+    <pre><span class="hl-cmt">-- supabase/migrations/0002_service_check.sql</span>
+<span class="hl-key">alter table</span> logs
+  <span class="hl-key">add constraint</span> logs_service_check
+  <span class="hl-key">check</span> (
+    service <span class="hl-key">in</span> (<span class="hl-str">'stable'</span>, <span class="hl-str">'canary'</span>, <span class="hl-str">'proxy'</span>)
+    <span class="hl-key">or</span> service <span class="hl-key">like</span> <span class="hl-str">'proxy-&gt;%'</span>
+  );</pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#8b5cf6">6</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-agent">agent</span> Decision — pure logic over the log rows</div>
+    <div class="step-sub"><code>POST :8003/decide</code> — fetches the last 200 rows, loads the criticality map, runs two pure rules, returns a verdict.</div>
+
+    <div class="diagram">
+      <div class="section-label">Inside run_decision(rows, crit) — no I/O</div>
+      <div class="flow">
+        <div class="box box-db" style="font-size:.7rem">200 rows<br />from logs</div>
+        <div class="arrow">+</div>
+        <div class="box box-agent" style="font-size:.7rem">criticality map<br />critical:[/checkout]<br />high:[/search]</div>
+        <div class="arrow">→</div>
+        <div class="box box-deep" style="font-size:.7rem">run_decision()<br />_error_rule()<br />_latency_rule()</div>
+        <div class="arrow">→</div>
+        <div class="box" style="background:#fff1f2;border-color:#fca5a5;color:#991b1b;font-size:.7rem">verdict:<br />"escalate"</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="section-label">Rule 1 — 5xx error check (critical endpoints)</div>
+        <pre style="font-size:.7rem"><span class="hl-cmt"># canary has errors, stable does not</span>
+c_err = [rows where
+  service == <span class="hl-str">"canary"</span>
+  <span class="hl-key">and</span> <span class="hl-str">"/checkout"</span> in endpoint
+  <span class="hl-key">and</span> status_code &gt;= <span class="hl-num">500</span>
+]  <span class="hl-cmt"># → 1 row</span>
+
+s_err = []  <span class="hl-cmt"># stable had 0 errors</span>
+
+<span class="hl-key">if</span> c_err <span class="hl-key">and not</span> s_err:
+    reasons.append(
+      <span class="hl-str">"canary 5xx on critical /checkout: 1 vs stable 0"</span>
+    )</pre>
+      </div>
+      <div>
+        <div class="section-label">Rule 2 — p95 latency check (high endpoints)</div>
+        <pre style="font-size:.7rem"><span class="hl-cmt"># stable p95 ≈ 8ms, canary p95 ≈ 820ms</span>
+s_p95 = <span class="hl-num">8</span>
+c_p95 = <span class="hl-num">820</span>
+
+<span class="hl-key">if</span> c_p95 &gt; s_p95 * <span class="hl-num">2.0</span>:  <span class="hl-cmt"># 820 &gt; 16 ✓</span>
+    reasons.append(
+      <span class="hl-str">"canary p95 latency on high /search:"</span>
+      <span class="hl-str">" 820ms vs stable 8ms"</span>
+    )</pre>
+      </div>
+    </div>
+
+    <pre><span class="hl-cmt"># Response from POST :8003/decide</span>
+{
+  <span class="hl-key">"verdict"</span>: <span class="hl-str">"escalate"</span>,
+  <span class="hl-key">"reasons"</span>: [
+    <span class="hl-val">"canary 5xx on critical /checkout: 1 vs stable 0"</span>,
+    <span class="hl-val">"canary p95 latency on high /search: 820ms vs stable 8ms"</span>
+  ]
+}</pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#8b5cf6">7</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-agent">agent</span> Proposals — derived from the reasons</div>
+    <div class="step-sub"><code>POST :8003/propose</code> — calls decide() internally, passes the reasons to <code>build_proposals()</code>. Only actionable proposals are returned.</div>
+
+    <div class="callout callout-purple">
+      Because both bugs triggered (5xx + latency), <code>has_5xx = True</code> so only the primary executable proposal is returned — no informational clutter. The 5xx alone is enough to flip back to stable.
+    </div>
+
+    <pre><span class="hl-cmt"># Response from POST :8003/propose</span>
+{
+  <span class="hl-key">"proposals"</span>: [
+    {
+      <span class="hl-key">"action"</span>:        <span class="hl-str">"traffic flip to stable"</span>,
+      <span class="hl-key">"risk"</span>:          <span class="hl-num">0.1</span>,
+      <span class="hl-key">"blast_radius"</span>:  <span class="hl-str">"proxy only"</span>,
+      <span class="hl-key">"reversibility"</span>: <span class="hl-str">"instant"</span>,
+      <span class="hl-key">"execute"</span>:       { <span class="hl-str">"target"</span>: <span class="hl-str">"stable"</span> }  <span class="hl-cmt">← executable</span>
+    }
+  ]
+}</pre>
+  </div>
+</div>
+
+
+
+<div class="step">
+  <div class="step-num">
+    <div class="step-circle" style="background:#16a34a">8</div>
+    <div class="step-line"></div>
+  </div>
+  <div class="step-body">
+    <div class="step-title"><span class="tag tag-agent">agent</span> Execute — human approves, traffic flips back</div>
+    <div class="step-sub">Track B's dashboard shows the proposal. The human clicks "Approve". The dashboard calls <code>POST :8003/execute</code>. The agent calls the proxy, then writes an audit row.</div>
+
+    <div class="diagram">
+      <div class="flow">
+        <div class="box" style="background:#fef9c3;border-color:#fde047;color:#713f12">Human<br />clicks approve</div>
+        <div class="arrow">→</div>
+        <div class="box box-agent">POST /execute<br />{target:"stable"}</div>
+        <div class="arrow">→</div>
+        <div class="box box-proxy">POST /admin/route<br />{target:"stable"}</div>
+        <div class="arrow">→</div>
+        <div class="box box-demo">proxy now<br />routes → stable</div>
+      </div>
+      <div style="margin-top:.5rem">
+        <div class="flow">
+          <div style="width:120px"></div>
+          <div class="arrow" style="transform:rotate(90deg);margin:.3rem 0">↓</div>
+        </div>
+        <div class="flow" style="margin-top:.1rem">
+          <div style="width:120px"></div>
+          <div class="box box-db" style="font-size:.7rem">audit table:<br />approver, action, outcome</div>
+        </div>
+      </div>
+    </div>
+
+    <pre><span class="hl-cmt"># audit row inserted by agent/execute()</span>
+{
+  <span class="hl-key">"approver"</span>: <span class="hl-str">"human"</span>,
+  <span class="hl-key">"action"</span>:   <span class="hl-str">"flip to stable"</span>,
+  <span class="hl-key">"outcome"</span>:  <span class="hl-str">"proxy=200"</span>,
+  <span class="hl-key">"proposal"</span>: { <span class="hl-str">"target"</span>: <span class="hl-str">"stable"</span> }
+}
+
+<span class="hl-cmt"># Response from POST :8003/execute</span>
+{ <span class="hl-key">"ok"</span>: <span class="hl-ok">true</span>, <span class="hl-key">"target"</span>: <span class="hl-str">"stable"</span> }</pre>
+
+    <div class="callout callout-green">
+      <strong>Traffic is back on stable.</strong> The proxy's in-memory <code>target</code> is now <code>"stable"</code>. All subsequent requests to <code>:8080</code> go to the bug-free container. The full cycle — detect → decide → propose → approve → execute — is complete.
+    </div>
+  </div>
+</div>
+
+
+
+<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem;margin-top:1rem">
+  <div class="section-label" style="margin-bottom:.75rem">Full data flow — one-line summary per component</div>
+  <table>
+    <thead>
+      <tr><th>Component</th><th>File</th><th>What it does in this example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="tag tag-compose">compose</span></td><td>docker-compose.yml</td><td>Starts stable + canary, gates proxy on their <code>/health</code>, gates runner on stable + canary health</td></tr>
+      <tr><td><span class="tag tag-demo">api-demo</span></td><td>services/api-demo/app/main.py</td><td>Stable returns 400 on empty checkout; canary returns 500 (planted bug). Canary sleeps 800ms on /search.</td></tr>
+      <tr><td><span class="tag tag-proxy">proxy</span></td><td>services/proxy/src/index.js</td><td>Routes live traffic to stable by default; exposes <code>/admin/route</code> flip; logs every proxied request via <code>makeLogRow()</code></td></tr>
+      <tr><td><span class="tag tag-runner">runner</span></td><td>workers/traffic-runner/runner.py</td><td>Fires 4 cases × 2 services = 8 requests; calls <code>make_log_row()</code>; batch-inserts 8 rows into Supabase <code>logs</code></td></tr>
+      <tr><td><span class="tag tag-db">logs table</span></td><td>supabase/migrations/0001…</td><td>Receives all 8 rows; CHECK constraint on <code>service</code> field rejects any invalid writer</td></tr>
+      <tr><td><span class="tag tag-agent">agent /decide</span></td><td>workers/agent/graph.py:run_decision()</td><td>Reads 200 rows; <code>_error_rule</code> fires on canary 500; <code>_latency_rule</code> fires on canary 820ms p95; returns "escalate"</td></tr>
+      <tr><td><span class="tag tag-agent">agent /propose</span></td><td>workers/agent/graph.py:build_proposals()</td><td>Sees <code>has_5xx=True</code>; returns one executable proposal: flip to stable</td></tr>
+      <tr><td><span class="tag tag-agent">agent /execute</span></td><td>workers/agent/graph.py:execute()</td><td>POSTs to proxy <code>/admin/route</code>; inserts audit row; traffic is back on stable</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  <div style="border-top:1px solid #e5e7eb;padding-top:1rem;margin-top:2rem">Made with IBM Bob</div>
+</footer>
+
+</main>
+</body>
+</html>

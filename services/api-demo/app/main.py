@@ -1,33 +1,36 @@
-import asyncio
-import os
-from fastapi import FastAPI, Response
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+"""Composition root: demo Stable/Canary API (thin route wiring).
 
-BUG_PROFILE = os.getenv("BUG_PROFILE", "stable")  # stable | canary
+Bug behavior lives in bugs.py, env in settings.py, shapes in schemas.py.
+Re-exports keep `from app.main import app, BUG_PROFILE, Checkout` working.
+"""
+from fastapi import FastAPI, Response
+
+from .bugs import checkout_result, search_results
+from .schemas import Checkout
+from .settings import BUG_PROFILE
+
+__all__ = ["app", "BUG_PROFILE", "Checkout", "health", "search", "checkout"]
+
 app = FastAPI(title=f"guardrail-demo-{BUG_PROFILE}")
 
-class Checkout(BaseModel):
-    item_id: str | None = None
-    qty: int = 1
 
 @app.get("/health")
 def health():
     return {"ok": True, "profile": BUG_PROFILE}
 
+
 @app.get("/search")
 async def search(q: str = "x"):
-    # Bug 2 (canary only): latency injection
-    if BUG_PROFILE == "canary":
-        await asyncio.sleep(0.8)
-    return {"profile": BUG_PROFILE, "q": q, "results": [q]}
+    return await search_results(BUG_PROFILE, q)
+
 
 @app.post("/checkout")
 def checkout(body: Checkout, response: Response):
-    # Bug 1 (canary only): 500 on edge case, stable correctly returns 400
-    if not body.item_id:
-        if BUG_PROFILE == "canary":
-            return JSONResponse(status_code=500, content={"error": "boom: item_id missing"})
-        response.status_code = 400
-        return {"error": "item_id required"}
-    return {"ok": True, "profile": BUG_PROFILE, "item_id": body.item_id}
+    from fastapi.responses import Response as FastAPIResponse
+
+    status, payload = checkout_result(BUG_PROFILE, body.item_id)
+    if isinstance(payload, FastAPIResponse):
+        return payload
+    if status is not None:
+        response.status_code = status
+    return payload
