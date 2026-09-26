@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import {
   RiCircleFill,
-  RiFilterLine,
   RiPlayLine,
   RiRefreshLine,
 } from "@remixicon/react";
@@ -15,7 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,7 +23,7 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { StatusBadge, ServiceBadge } from "@/components/shared/status-badges";
-import { useTrafficRun } from "@/hooks/use-agent-queries";
+import { useTargets, useTrafficRun } from "@/hooks/use-agent-queries";
 import { useLogs } from "@/hooks/use-logs";
 import type { LogRow } from "@/types/guardrail";
 
@@ -97,10 +94,12 @@ function LoadingRows() {
 interface LogsTableProps {
   service?: string;
   label: string;
+  /** Target scope: an external target id, or "demo" for untagged rows. */
+  targetId?: string | "demo";
 }
 
-function LogsTable({ service, label }: LogsTableProps) {
-  const { rows, isLoading, error, refresh } = useLogs({ service });
+function LogsTable({ service, label, targetId }: LogsTableProps) {
+  const { rows, isLoading, error, refresh } = useLogs({ service, targetId });
 
   return (
     <div className="flex flex-col gap-3">
@@ -159,8 +158,8 @@ function LogsTable({ service, label }: LogsTableProps) {
 
 // ── Verification summary bar ──────────────────────────────────────────────────
 
-function VerificationSummary() {
-  const { rows } = useLogs({ maxRows: 200 });
+function VerificationSummary({ targetId }: { targetId?: string | "demo" }) {
+  const { rows } = useLogs({ targetId, maxRows: 200 });
 
   const stableRows = rows.filter((r) => r.service === "stable");
   const canaryRows = rows.filter((r) => r.service === "canary");
@@ -224,28 +223,53 @@ function VerificationSummary() {
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-export function VerificationView() {
-  const { mutate: runTraffic, isPending: isRunning, data: lastRun } = useTrafficRun();
+export function VerificationView({ targetId }: { targetId?: string | null }) {
+  // "demo" = untagged rows; an external id scopes everything to that pair.
+  const scope = (targetId ?? "demo") as string | "demo";
+  const isExternal = !!targetId;
+  const { data: targets } = useTargets();
+  const {
+    mutate: runTraffic,
+    isPending: isRunning,
+    data: lastRun,
+  } = useTrafficRun(targetId);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-xs text-muted-foreground">
-          Fire one probe batch at Stable + Canary (8 rows). New logs stream in
-          live — then Run Decision on the Proposals page.
+          {isExternal
+            ? "Fire the generated case set at this pair's Stable + Canary. New logs stream in live — then Run Decision on the Proposals page."
+            : "Fire one probe batch at Stable + Canary (8 rows). New logs stream in live — then Run Decision on the Proposals page."}
           {lastRun && ` Last run: ${lastRun.rows} rows.`}
         </p>
-        <Button
-          size="sm"
-          onClick={() => runTraffic()}
-          disabled={isRunning}
-        >
-          <RiPlayLine className="size-3.5" />
-          {isRunning ? "Running…" : "Run traffic"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Traffic scope"
+            className="h-8 max-w-[320px] rounded-md border border-input bg-transparent px-2 text-xs"
+            value={scope}
+            onChange={(e) => {
+              const v = e.target.value;
+              window.location.assign(
+                v === "demo" ? "/verification" : `/verification?target=${v}`,
+              );
+            }}
+          >
+            <option value="demo">Demo traffic</option>
+            {(targets ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.stable_url} ↔ {t.canary_url}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" onClick={() => runTraffic()} disabled={isRunning}>
+            <RiPlayLine className="size-3.5" />
+            {isRunning ? "Running…" : "Run traffic"}
+          </Button>
+        </div>
       </div>
-      <VerificationSummary />
-      <Tabs defaultValue="all">
+      <VerificationSummary targetId={scope} />
+      <Tabs defaultValue="all" key={scope}>
         <TabsList>
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="stable">Stable</TabsTrigger>
@@ -253,13 +277,13 @@ export function VerificationView() {
         </TabsList>
         <div className="mt-4">
           <TabsContent value="all">
-            <LogsTable label="any service" />
+            <LogsTable label="any service" targetId={scope} />
           </TabsContent>
           <TabsContent value="stable">
-            <LogsTable service="stable" label="stable" />
+            <LogsTable service="stable" label="stable" targetId={scope} />
           </TabsContent>
           <TabsContent value="canary">
-            <LogsTable service="canary" label="canary" />
+            <LogsTable service="canary" label="canary" targetId={scope} />
           </TabsContent>
         </div>
       </Tabs>
