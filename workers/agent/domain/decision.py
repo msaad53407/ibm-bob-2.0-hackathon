@@ -1,13 +1,14 @@
 """Pure Decision module: no I/O, no HTTP, no Supabase.
 
-Interface (test surface, see test_decision.py):
-  run_decision() + build_proposals() + approve_execution()
+Interface (test surface, see tests/test_decision.py):
+  run_decision() + build_proposals() + approve_execution() + decide_from_data()
 accept plain data and return verdicts/reasons.
 """
 import _paths  # noqa: F401 — ensures shared/ is importable
 from log_row import ServiceName, is_error  # noqa: E402
 from verification import LATENCY_DEGRADATION_FACTOR as SPEC_LATENCY_FACTOR  # noqa: E402
 from verification import MIN_SAMPLES as SPEC_MIN_SAMPLES  # noqa: E402
+from config.settings import LATENCY_DEGRADATION_FACTOR  # noqa: E402
 
 MIN_SAMPLES = SPEC_MIN_SAMPLES  # per side, per endpoint: guards p95 against single-row noise
 RECENT_WINDOW_SECONDS = 3600  # ignore rows older than this in decide/propose
@@ -147,3 +148,13 @@ def approve_execution(proposal_set: dict | None, target: str) -> str | None:
     if target not in approved:
         return f"target {target!r} not in approved proposals {approved}"
     return None
+
+
+def decide_from_data(
+    rows: list[dict],
+    crit: dict,
+    now: str,
+    latency_factor: float = LATENCY_DEGRADATION_FACTOR,
+) -> tuple[str, list[str]]:
+    """Pure funnel: window the rows, then run the Decision. Directly unit-tested."""
+    return run_decision(within_window(rows, now), crit, latency_factor=latency_factor)

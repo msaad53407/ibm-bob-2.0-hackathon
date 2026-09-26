@@ -207,7 +207,7 @@ Four pages, each backed by typed API hooks:
 
 ## 6. The Decision Algorithm
 
-Implemented in `workers/agent/decision.py` — **pure function, zero I/O, fully unit-tested**.
+Implemented in `workers/agent/domain/decision.py` — **pure function, zero I/O, fully unit-tested**.
 
 ```
 run_decision(rows, criticality_map, latency_factor=2.0) → (verdict, reasons)

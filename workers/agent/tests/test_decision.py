@@ -1,7 +1,9 @@
-"""Tests for the Decision module interface (decision.py via service.py).
+"""Tests for the domain Decision module (domain/decision.py)
+plus the Jev adapter merge logic (adapters/jev.py, pure) and workflow routing.
 
-Run:  python3 -m unittest test_decision -v   (from workers/agent/)
+Run:  python3 -m unittest tests.test_decision -v   (from workers/agent/)
 No Supabase, no HTTP, no mocks — the interface is the test surface.
+(Jev tests patch the key constant; ask_jev never touches the network.)
 """
 import os
 import sys
@@ -13,18 +15,22 @@ os.environ.setdefault("ADMIN_TOKEN", "test-admin-token-1234")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shared"))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from decision import (  # noqa: E402
+from adapters import jev  # noqa: E402
+import workflow.edges as edges  # noqa: E402
+from domain.decision import (  # noqa: E402
     approve_execution,
     build_proposals,
+    decide_from_data,
     matches,
     path_of,
     percentile,
     run_decision,
     within_window,
 )
-from service import decide_from_data  # noqa: E402
+from adapters.jev import ask_jev, build_questions, merge_verdict, summarize_traffic  # noqa: E402
+from workflow.edges import should_assess  # noqa: E402
 
 NOW = "2026-09-26T12:00:00+00:00"
 
@@ -138,6 +144,91 @@ class TestApprovalGate(unittest.TestCase):
         ]}
         self.assertIn("not in approved proposals",
                       approve_execution(funding, "stable") or "")
+
+
+def _jev_escalate(conf=0.9, regressing=(("checkout", 0.93),)):
+    answers = {"verdict": {"type": "choice", "choice": "escalate",
+                           "probabilities": {"escalate": conf, "keep": 1 - conf},
+                           "confidence": conf}}
+    for ep, p in regressing:
+        answers[f"{ep}_regressing"] = {"type": "noul", "noul": p}
+    return answers
+
+
+def _jev_keep(conf=0.85):
+    return {"verdict": {"type": "choice", "choice": "keep",
+                        "probabilities": {"escalate": 1 - conf, "keep": conf},
+                        "confidence": conf}}
+
+
+class TestJevMerge(unittest.TestCase):
+    def test_unavailable_passes_rules_through(self):
+        v, reasons = merge_verdict("escalate", ["canary 5xx on critical /checkout"], None)
+        self.assertEqual(v, "escalate")
+        self.assertTrue(any("jev: unavailable" in r for r in reasons))
+
+    def test_agree_escalates_with_both_sources(self):
+        v, reasons = merge_verdict("escalate", ["r1"], _jev_escalate())
+        self.assertEqual(v, "escalate")
+        self.assertTrue(any(r.startswith("rules:") for r in reasons))
+        self.assertTrue(any(r.startswith("jev:") for r in reasons))
+        self.assertFalse(any("disagree" in r for r in reasons))
+
+    def test_jev_only_signal_still_escalates_labeled(self):
+        # Human gate stays final: surfaced, labeled, needs proposal approval.
+        v, reasons = merge_verdict("keep", ["no critical diff"], _jev_escalate())
+        self.assertEqual(v, "escalate")
+        self.assertTrue(any("disagree" in r for r in reasons))
+
+    def test_rules_only_signal_escalates_labeled(self):
+        v, reasons = merge_verdict("escalate", ["r1"], _jev_keep())
+        self.assertEqual(v, "escalate")
+        self.assertTrue(any("disagree" in r for r in reasons))
+
+    def test_agree_keep(self):
+        v, reasons = merge_verdict("keep", ["no critical diff"], _jev_keep())
+        self.assertEqual(v, "keep")
+
+    def test_malformed_answers_default_keep(self):
+        v, _ = merge_verdict("keep", ["no critical diff"], {"verdict": {"choice": "maybe"}})
+        self.assertEqual(v, "keep")
+
+
+class TestJevClient(unittest.TestCase):
+    def test_no_key_never_touches_network(self):
+        real = jev.TYPESAFE_API_KEY
+        jev.TYPESAFE_API_KEY = ""
+        try:
+            self.assertIsNone(ask_jev("state", {"verdict": {}}))
+        finally:
+            jev.TYPESAFE_API_KEY = real
+
+    def test_empty_questions_short_circuits(self):
+        self.assertIsNone(ask_jev("state", {}))
+
+    def test_summary_and_questions_shape(self):
+        rows = [row("stable", "/checkout", 200), row("canary", "/checkout", 500)]
+        crit = {"critical": ["/checkout"], "high": ["/search"]}
+        summary = summarize_traffic(rows, crit)
+        self.assertIn("/checkout", summary)
+        self.assertIn("stable", summary)
+        q = build_questions(crit)
+        self.assertEqual(q["verdict"]["type"], "choice")
+        self.assertIn("checkout_regressing", q)
+        self.assertEqual(q["checkout_regressing"]["type"], "noul")
+
+
+class TestWorkflowRouting(unittest.TestCase):
+    def test_skips_assess_without_key(self):
+        real = edges.TYPESAFE_API_KEY
+        edges.TYPESAFE_API_KEY = ""
+        try:
+            self.assertEqual(should_assess({"windowed": [{"a": 1}]}), "merge")
+        finally:
+            edges.TYPESAFE_API_KEY = real
+
+    def test_skips_assess_without_rows(self):
+        self.assertEqual(should_assess({"windowed": []}), "merge")
 
 
 if __name__ == "__main__":

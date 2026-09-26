@@ -1,34 +1,22 @@
-"""Composition root: FastAPI app + route wiring (thin adapters).
+"""HTTP layer: FastAPI app + route wiring (thin adapters).
 
-Pure logic lives in decision.py, orchestration in service.py,
-I/O in store.py / proxy.py / criticality.py, shapes in schemas.py,
-env in settings.py. This module only wires them to HTTP.
+Layout of the agent package:
+  api/       this HTTP layer (app + shapes)
+  domain/    pure business logic, no I/O (decision, criticality)
+  adapters/  I/O to the outside world (store, proxy, jev)
+  workflow/  LangGraph graph (state, nodes, edges, builder)
+  config/    env validation (settings)
+  tests/     unit tests (no Supabase, no HTTP)
 
-Re-exports keep `from graph import run_decision, ...` working.
+Analysis runs as a LangGraph workflow: fetch → rules → (assess?) →
+merge → propose. This module only wires HTTP to the workflow.
 """
 import _paths  # noqa: F401 — ensures shared/ is importable
 import hmac
 from fastapi import Depends, FastAPI, Header, HTTPException
-from log_row import now_iso  # noqa: E402
 
-from settings import ADMIN_TOKEN
-
-from criticality import bob_criticality
-from decision import (
-    MIN_SAMPLES,
-    RECENT_WINDOW_SECONDS,
-    approve_execution,
-    build_proposals,
-    matches,
-    path_of,
-    percentile,
-    run_decision,
-    within_window,
-)
-from proxy import flip_proxy
-from schemas import Approve, DecideOut, ProposalSet, Target
-from service import current_proposal_set, decide_from_data
-from store import (
+from adapters.proxy import flip_proxy
+from adapters.store import (
     RECENT_FETCH_LIMIT,
     fetch_recent_rows,
     get_proposal_set,
@@ -38,13 +26,29 @@ from store import (
     save_proposals,
     sb,
 )
+from api.schemas import Approve, DecideOut, ProposalSet, Target
+from config.settings import ADMIN_TOKEN
+from domain.criticality import bob_criticality
+from domain.decision import (
+    MIN_SAMPLES,
+    RECENT_WINDOW_SECONDS,
+    approve_execution,
+    build_proposals,
+    decide_from_data,
+    matches,
+    path_of,
+    percentile,
+    run_decision,
+    within_window,
+)
+from workflow import run_analysis
 
 __all__ = [
     "app",
     "sb", "bob_criticality",
     "path_of", "matches", "percentile", "within_window",
     "run_decision", "build_proposals", "approve_execution",
-    "decide_from_data", "current_proposal_set",
+    "decide_from_data", "current_proposal_set", "decide_via_graph", "run_analysis",
     "fetch_recent_rows", "flip_proxy", "record_audit",
     "save_proposals", "list_proposals", "list_audit", "get_proposal_set",
     "DecideOut", "ProposalSet", "Approve", "Target",
@@ -56,6 +60,23 @@ app = FastAPI(title="guardrail-agent")
 # No CORS middleware (Slice B): browsers reach the agent only through the
 # web server's same-origin /api/agent/* forwarders, so cross-origin browser
 # access is intentionally unsupported. Server-to-server calls are unaffected.
+
+# ── HTTP-facing helpers (stable signatures, workflow-backed) ────────────────
+
+def current_proposal_set() -> ProposalSet:
+    """Fetch once, then Decision + Proposal + persistence — via the graph."""
+    out = run_analysis(persist=True)
+    return ProposalSet(
+        id=out.get("proposal_id"), verdict=out["verdict"],
+        reasons=out["reasons"], proposals=out["proposals"],
+    )
+
+
+def decide_via_graph() -> tuple[str, list[str]]:
+    """Analyze without persisting (/decide): same graph, persist=False."""
+    out = run_analysis(persist=False)
+    return out["verdict"], out["reasons"]
+
 
 @app.get("/health")
 def health():
@@ -73,18 +94,10 @@ def verify_admin(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-def _p95(values: list[float]) -> float:
-    """Return the 95th-percentile value from a non-empty list."""
-    s = sorted(values)
-    idx = max(0, int(len(s) * 0.95) - 1)
-    return s[idx]
-
 @app.post("/decide", response_model=DecideOut)
 def decide(_: None = Depends(verify_admin)):
-    """Fetches rows + criticality, delegates to the Decision module."""
-    rows = fetch_recent_rows(sb())
-    crit = bob_criticality()
-    verdict, reasons = decide_from_data(rows, crit, now_iso())
+    """Analyze via the LangGraph workflow (no persistence)."""
+    verdict, reasons = decide_via_graph()
     return {"verdict": verdict, "reasons": reasons}
 
 

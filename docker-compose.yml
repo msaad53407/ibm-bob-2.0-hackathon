@@ -58,12 +58,23 @@ services:
     build:
       context: ./workers
       dockerfile: traffic-runner/Dockerfile
+    expose:
+      - "8004"
     environment:
       STABLE_URL: http://stable:8000
       CANARY_URL: http://canary:8000
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
-      RUN_ONCE: "true"
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      PORT: 8004
+      RUN_ONCE: "false"
+      RUN_ON_START: "true"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     depends_on:
       stable:
         condition: service_healthy
@@ -115,7 +126,9 @@ services:
       NEXT_PUBLIC_PROXY_URL: http://localhost:8080
       AGENT_URL: http://agent:8003
       PROXY_BASE_URL: http://proxy:8080
+      TRAFFIC_RUNNER_URL: http://traffic-runner:8004
       ADMIN_TOKEN: ${ADMIN_TOKEN}
     depends_on:
       - proxy
       - agent
+      - traffic-runner

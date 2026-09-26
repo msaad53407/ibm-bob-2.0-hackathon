@@ -1,7 +1,7 @@
 """Supabase adapter: client factory + batch log insert."""
 from supabase import create_client
 
-from settings import SUPABASE_KEY, SUPABASE_URL
+from config.settings import SUPABASE_KEY, SUPABASE_URL
 
 
 def sb():

@@ -66,9 +66,20 @@ export function postExecute(body: ApproveBody): Promise<ExecuteOut> {
   });
 }
 
+/** POST /api/traffic/run — fire one CASES x SERVICES probe batch */
+export function postTrafficRun(): Promise<{ ok: boolean; rows: number; by_service: Record<string, number> }> {
+  // Traffic forwarder lives outside /api/agent/* (separate service).
+  return fetch("/api/traffic/run", { method: "POST" }).then(async (res) => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(`Traffic run → ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+}
+
 /** GET proxy /admin/route — current routing target */
-export function getProxyRoute(): Promise<ProxyRoute> {
-  // Server-side: use the internal Docker base URL directly (GET stays open).
+export function getProxyRoute(): Promise<ProxyRoute> {  // Server-side: use the internal Docker base URL directly (GET stays open).
   // Browser: same-origin forwarder (keeps working once proxy ports close).
   if (typeof window === "undefined") {
     const proxyBase = process.env.PROXY_BASE_URL ?? "http://proxy:8080";

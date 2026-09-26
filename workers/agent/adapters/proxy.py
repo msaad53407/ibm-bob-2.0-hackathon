@@ -1,7 +1,7 @@
 """Proxy adapter: Traffic flip Execution (ADR-0002)."""
 import httpx
 
-from settings import ADMIN_TOKEN, PROXY_ADMIN_URL
+from config.settings import ADMIN_TOKEN, PROXY_ADMIN_URL
 
 
 def flip_proxy(target: str) -> int:

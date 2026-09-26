@@ -4,8 +4,8 @@ Verification spec: the single place that knows WHAT is probed and WHY.
 Cross-language note: the TS side has no Verification logic (dashboard only
 displays). Both Python modules import this file — never redeclare cases,
 tiers, or thresholds locally:
-  - workers/traffic-runner/runner.py executes CASES (Traffic-runner adapter)
-  - workers/agent/graph.py compares against CRITICALITY (Decision adapter)
+  - workers/traffic-runner/api/app.py executes CASES (Traffic-runner adapter)
+  - workers/agent/domain/criticality.py compares against CRITICALITY (Decision adapter)
 
 Each case probes a tier: critical endpoints must never 5xx on Canary while
 Stable is clean; high endpoints must not degrade in p95 latency.

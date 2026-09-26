@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   RiCircleFill,
   RiFilterLine,
+  RiPlayLine,
   RiRefreshLine,
 } from "@remixicon/react";
 import {
@@ -25,6 +26,7 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { StatusBadge, ServiceBadge } from "@/components/shared/status-badges";
+import { useTrafficRun } from "@/hooks/use-agent-queries";
 import { useLogs } from "@/hooks/use-logs";
 import type { LogRow } from "@/types/guardrail";
 
@@ -223,8 +225,25 @@ function VerificationSummary() {
 // ── Public component ──────────────────────────────────────────────────────────
 
 export function VerificationView() {
+  const { mutate: runTraffic, isPending: isRunning, data: lastRun } = useTrafficRun();
+
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          Fire one probe batch at Stable + Canary (8 rows). New logs stream in
+          live — then Run Decision on the Proposals page.
+          {lastRun && ` Last run: ${lastRun.rows} rows.`}
+        </p>
+        <Button
+          size="sm"
+          onClick={() => runTraffic()}
+          disabled={isRunning}
+        >
+          <RiPlayLine className="size-3.5" />
+          {isRunning ? "Running…" : "Run traffic"}
+        </Button>
+      </div>
       <VerificationSummary />
       <Tabs defaultValue="all">
         <TabsList>

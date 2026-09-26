@@ -1,7 +1,7 @@
 """Probe logic: fire one spec case at one service, build its log row.
 
-No Supabase, no loop — the testable unit. Looping over CASES x SERVICES
-lives in runner.main().
+Client-agnostic (no httpx/Supabase imports) — the testable unit. Looping
+over CASES x SERVICES lives in api/app.py main().
 """
 import time
 

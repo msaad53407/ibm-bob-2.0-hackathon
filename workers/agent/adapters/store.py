@@ -5,7 +5,7 @@ missing table never blocks the Decision.
 """
 from supabase import create_client
 
-from settings import SUPABASE_KEY, SUPABASE_URL
+from config.settings import SUPABASE_KEY, SUPABASE_URL
 
 RECENT_FETCH_LIMIT = 200  # newest-first cap per fetch
 

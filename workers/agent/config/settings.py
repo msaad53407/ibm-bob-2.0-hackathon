@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     proxy_admin_url: AnyHttpUrl = "http://proxy:8080/admin/route"  # type: ignore[assignment]
     port: int = 8003
     latency_degradation_factor: float = SPEC_LATENCY_FACTOR
+    # Jev (TypeSafe System One decision model). Optional: when empty the
+    # workflow skips the assess node and decides on rules alone.
+    typesafe_api_key: str = ""
+    typesafe_api_base: str = "https://api.typesafe.ai"
+    jev_model: str = "jev-latest"
 
     @field_validator("supabase_service_key")
     @classmethod
@@ -43,3 +48,8 @@ ADMIN_TOKEN = cfg.admin_token
 PROXY_ADMIN_URL = str(cfg.proxy_admin_url).rstrip("/")
 LATENCY_DEGRADATION_FACTOR = cfg.latency_degradation_factor
 PORT = cfg.port
+TYPESAFE_API_KEY = cfg.typesafe_api_key.strip()
+TYPESAFE_API_BASE = cfg.typesafe_api_base.rstrip("/")
+JEV_MODEL = cfg.jev_model.strip() or "jev-latest"
+if not TYPESAFE_API_KEY:
+    print("ℹ️  TYPESAFE_API_KEY not set — Jev assess node disabled (rules only).")

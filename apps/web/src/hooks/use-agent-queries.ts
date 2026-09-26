@@ -14,6 +14,7 @@ import {
   postDecide,
   postPropose,
   postExecute,
+  postTrafficRun,
 } from "@/lib/api";
 import { queryKeys } from "./query-keys";
 import type { ApproveBody } from "@/types/guardrail";
@@ -109,6 +110,22 @@ export function useExecute() {
     },
     onError: (err) => {
       toast.error(`Execution failed: ${err.message}`);
+    },
+  });
+}
+
+// ── Traffic run (probe batch) mutation ──────────────────────────────────────
+
+export function useTrafficRun() {
+  return useMutation({
+    mutationFn: postTrafficRun,
+    onSuccess: (data) => {
+      toast.success(`Traffic run wrote ${data.rows} rows`, {
+        description: "New logs stream in live — then Run Decision.",
+      });
+    },
+    onError: (err) => {
+      toast.error(`Traffic run failed: ${err.message}`);
     },
   });
 }

@@ -54,12 +54,6 @@ export function useLogs({
   // Latest cap for the realtime callback (assigned inside the effect below,
   // never during render).
   const maxRowsRef = useRef(maxRows);
-  // Monotonic counter so every subscribe gets a FRESH channel topic.
-  // supabase-js reuses channel objects by topic: sharing "logs-realtime"
-  // across hook instances (stable/canary/all on Verification) or across a
-  // StrictMode remount calls .on() on an already-subscribed channel, which
-  // throws "cannot add postgres_changes callbacks ... after subscribe()".
-  const channelSeq = useRef(0);
 
   function append(incoming: LogRow[]) {
     setRows((prev) => {
@@ -102,11 +96,15 @@ export function useLogs({
       }
     })();
 
-    // Subscribe to new inserts on a unique topic per effect run —
-    // never reuse a topic that may still be subscribed (see above).
+    // Subscribe to new inserts on a GLOBALLY unique topic per effect run.
+    // RealtimeClient.channel() returns the EXISTING channel object when the
+    // topic is already registered, and .on('postgres_changes') throws on a
+    // channel that is joining/joined ("... after `subscribe()`"). A
+    // per-instance counter is NOT enough — two hook instances (or a
+    // StrictMode remount before async removeChannel finishes) generate the
+    // same name and collide on one live channel. Random suffix = no reuse.
     const sb = getSupabase();
-    channelSeq.current += 1;
-    const topic = `logs-realtime-${service ?? "all"}-${channelSeq.current}`;
+    const topic = `logs-realtime-${service ?? "all"}-${crypto.randomUUID().slice(0, 8)}`;
     const channel = sb
       .channel(topic)
       .on(

@@ -16,7 +16,7 @@ edge case, +800ms on `GET /search`.
 
 Owns: `services/proxy/`, `services/api-demo/`, `workers/traffic-runner/`,
 `supabase/migrations/0001_init.sql` (logs table), doc-ingest `bob-shell` wrapper
-in `workers/agent/graph.py:bob_criticality` (fallback criticality map so demo never blocks).
+in `workers/agent/domain/criticality.py:bob_criticality` (static spec map so demo never blocks).
 
 Done when: `docker compose up` serves stable/canary side by side, proxy defaults
 to stable and `POST /admin/route {target}` flips live traffic, runner writes
@@ -25,7 +25,7 @@ for all 4 cases x 2 services, both bugs reproduce deterministically.
 
 ## Track B — Decide + Show (teammate)
 
-Owns: `workers/agent/graph.py` (`/decide` rule `error_diff>5% OR p95 split on
+Owns: `workers/agent/api/app.py` (`/decide` rule `error_diff>5% OR p95 split on
 critical → escalate`, `/propose` 3 ranked with risk/blast-radius/reversibility,
 `/execute` real flip call + audit insert), `apps/web/` (live metrics via Realtime,
 proposal cards, approve/deny, audit viewer, MTTD/MTTR timers), `supabase`
