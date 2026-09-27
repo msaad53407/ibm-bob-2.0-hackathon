@@ -68,8 +68,14 @@ def _render(op: dict, values: dict) -> tuple[str, dict | None]:
     return path + qs, body
 
 
-def synthesize(operations: list[dict]) -> list[dict]:
-    """Build capped edge-case list for parsed operations."""
+def synthesize(operations: list[dict], *, limit: int | None = MAX_TOTAL_CASES) -> list[dict]:
+    """Build an edge-case list for parsed operations, capped at `limit`.
+
+    The per-operation cap (MAX_CASES_PER_OP) always applies — it is what keeps
+    one wide operation from monopolising the budget. `limit` is the across-all
+    operations cap; pass None to get the uncapped list so a caller can report
+    honestly how much a spec wanted (see synthesize_all).
+    """
     tier_of = lambda op: tier_for_method(op["method"])
     cases: list[dict] = []
     for op in operations:
@@ -140,6 +146,18 @@ def synthesize(operations: list[dict]) -> list[dict]:
                     add(*_render(op, v), f"bound-{bound}:{name}")
 
         cases.extend(op_cases)
-        if len(cases) >= MAX_TOTAL_CASES:
+        if limit is not None and len(cases) >= limit:
             break
-    return cases[:MAX_TOTAL_CASES]
+    return cases[:limit] if limit is not None else cases
+
+
+def synthesize_all(operations: list[dict]) -> list[dict]:
+    """Every case the spec yields, ignoring the across-operations cap.
+
+    Only the *stored* case list is capped — a truncated set is still probed
+    with at most MAX_TOTAL_CASES cases, so generating the tail costs a few
+    dicts and buys an honest count. That count is what lets the caller say
+    "40 of 213 cases — this spec was truncated" instead of silently handing
+    an operator a partial case set.
+    """
+    return synthesize(operations, limit=None)

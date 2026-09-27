@@ -155,10 +155,32 @@ export function useCreateTarget() {
   return useMutation({
     mutationFn: createTarget,
     onSuccess: (data) => {
-      toast.success(
-        `Target connected — ${data.endpoints} endpoints, ${data.synth_cases + data.llm_cases} cases`,
-        { description: data.llm_cases > 0 ? "Includes LLM-generated edge cases." : "Deterministic cases (LLM unavailable)." },
-      );
+      const stored = data.synth_cases + data.llm_cases;
+      if (data.synth_truncated) {
+        // Say so. A silently partial case set reads as "GuardRail only found
+        // these problems", which is a materially different claim from "we
+        // probed a third of your spec and this is what we found".
+        toast.warning(
+          `Target connected — but the case set was truncated to ${data.synth_cases} of ${data.synth_cases_generated}`,
+          {
+            description:
+              `Probed ${stored} cases total across ${data.endpoints} endpoints. ` +
+              `Deterministic synthesis stops at the 40-case cap, so the later ` +
+              `endpoints in this spec were not probed.`,
+            duration: 12000,
+          },
+        );
+      } else {
+        toast.success(
+          `Target connected — ${data.endpoints} endpoints, ${stored} cases`,
+          {
+            description:
+              data.llm_cases > 0
+                ? "Includes LLM-generated edge cases."
+                : "Deterministic cases (LLM unavailable).",
+          },
+        );
+      }
       void qc.invalidateQueries({ queryKey: queryKeys.targets });
     },
     onError: (err) => {

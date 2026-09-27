@@ -118,6 +118,10 @@ export type TargetCreateResult = {
   endpoints: number;
   synth_cases: number;
   llm_cases: number;
+  /** Cases the spec yielded before MAX_TOTAL_CASES clipped the stored set. */
+  synth_cases_generated: number;
+  /** True when the stored case set is a partial view of the spec. */
+  synth_truncated: boolean;
 };
 
 /** POST /run response */

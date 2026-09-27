@@ -11,4 +11,6 @@ export const queryKeys = {
   logs: (limit?: number) => ["logs", limit ?? 200] as const,
   targets: ["targets"] as const,
   targetCases: (id: string) => ["targets", id, "cases"] as const,
+  detectionMetrics: (targetId: string | null) =>
+    ["detection-metrics", targetId ?? "demo"] as const,
 } as const;

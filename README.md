@@ -154,6 +154,17 @@ Because a third party has no traffic switch for you to flip, external pairs are 
 
 Demo and external traffic are scoped apart in both directions by `target_id` — they can never contaminate each other's analysis.
 
+The 40-case cap applies to what gets **probed**, not what gets generated. A large spec yields more than 40 cases, and `POST /targets` says so — `synth_cases_generated` alongside `synth_cases`, with `synth_truncated` — and the dashboard raises a warning rather than letting a partial case set read as "these are all the problems we found".
+
+## How fast
+
+The Overview page shows two numbers, both computed from timestamps that already existed (`logs.timestamp`, `proposals.created_at`, `audit.created_at`):
+
+- **MTTD** — first failing Canary probe → the escalating verdict. Measured against the agent's own 1-hour attribution window, so an escalation with no failing probe inside it contributes no sample instead of an invented one.
+- **MTTR** — the persisted escalation → the Execution that acted on it. Almost entirely human: the Proposal already exists, and nothing happens until someone clicks Execute.
+
+Both are deliberately narrower than the names suggest. GuardRail sees a failing probe, not a bad deploy, so MTTD is evidence-to-verdict rather than deploy-to-detect — the card says so. The agent caps `/proposals` at 10 and `/audit` at 20, so the card prints its sample count next to the mean.
+
 ## Security
 
 | Concern | Approach |

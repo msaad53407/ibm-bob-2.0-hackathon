@@ -342,7 +342,7 @@ guardrail/
 │       │   └── api/              4 Route Handlers (the server-side forwarders)
 │       ├── components/           auth, dashboard, layout, proposals, shared,
 │       │                         targets, ui, verification, providers
-│       ├── hooks/                use-logs, use-agent-queries, query-keys
+│       ├── hooks/                use-logs, use-agent-queries, use-detection-metrics, query-keys
 │       ├── lib/                  api client, supabase clients, query client
 │       └── types/guardrail.ts    Hand-mirrored API types
 │
@@ -1935,7 +1935,9 @@ Three details that are the result of real debugging, documented in the file:
 |---|---|
 | `components/layout/app-sidebar.tsx` | 5 nav items, collapsible to icons, active state from `usePathname` |
 | `components/layout/app-header.tsx` | Sidebar trigger, title, theme toggle, user menu |
-| `components/dashboard/stat-cards.tsx` | `ProxyStatusCard` (blue for Stable, violet for Canary), `AgentHealthCard`, a generic `StatCard` |
+| `components/dashboard/stat-cards.tsx` | `ProxyStatusCard` (blue for Stable, violet for Canary), `AgentHealthCard`, a generic `StatCard` (used by the MTTD/MTTR tiles) |
+| `components/dashboard/detection-metrics.tsx` | MTTD / MTTR tiles on the Overview page (§22.6) |
+| `lib/mttd-mttr.ts` | Pure MTTD/MTTR computation over rows — no I/O, no clock |
 | `components/dashboard/recent-decisions.tsx` | Last 5 verdicts with their first reason |
 | `components/verification/verification-view.tsx` | Scope selector, Run traffic, 4 summary tiles, tabbed log tables |
 | `components/proposals/proposals-view.tsx` | Scope selector, Run Decision, Proposal set history, Proposal cards with Execute |
@@ -2192,6 +2194,7 @@ Three are worth reading before changing anything in `domain/`:
 | Route Handlers | Session gates, identity rewriting, and the `503` paths are the highest-risk untested surface |
 | Realtime `use-logs` | Requires a browser and a live project |
 | Python type checking | No mypy/pyright config; the `AnyHttpUrl` defaults carry `# type: ignore[assignment]`. The JS side *is* covered — `pnpm run typecheck` runs `tsc --noEmit` over `apps/web` and `packages/contracts` |
+| `lib/mttd-mttr.ts` | Pure and covered by 14 cases when written (window boundary, unordered rows, `proxy->*` exclusion, negative-delta drop, `formatDuration` ladder) — but **they are not committed**: `apps/web` has no test runner, so the verification is not repeatable. The highest-value first target once one exists |
 | End-to-end | `docs/TEAM.md` schedules a manual full dry-run instead (Hr 44) |
 | Lockfile ↔ manifest agreement | Nothing asserts `pnpm install --frozen-lockfile` succeeds. The lockfile outlived the Next 16 / React 19 upgrade and pinned Next 14 / React 18, so a clean checkout could not install until it was re-locked — with no test to catch a recurrence |
 
@@ -2235,7 +2238,7 @@ understanding before modifying it.
 | **Headline proposal** | Index 0 of a Proposal set — the only one that can be executable |
 | **informational proposal** | A non-regression finding surfaced for visibility, never approvable |
 | **Slice A / Slice B** | Historical milestones from the project plan: A = the `ADMIN_TOKEN` service gate, B = Supabase Auth + admin allowlist + locked-down RLS |
-| **MTTD / MTTR** | Mean time to detect / mean time to remediate. Named in `docs/TEAM.md` as dashboard scope; **not implemented** (§22.6) |
+| **MTTD / MTTR** | Mean time to detect / mean time to remediate. Implemented on the Overview page; both are defined narrowly — evidence-to-verdict, not deploy-to-detect (§22.6) |
 
 ---
 
@@ -2376,13 +2379,33 @@ write, so any *future* audit failure still leaves a completed flip with no recor
 order is deliberate (never block the flip on a log write) — but it means audit failures
 should be visible in monitoring, not merely non-fatal.
 
-### 22.4 Silent truncation in `synthesize`
+### 22.4 ~~Silent truncation in `synthesize`~~ — fixed
 
-The loop breaks once `MAX_TOTAL_CASES` (40) is reached and the function returns
-`cases[:MAX_TOTAL_CASES]`. A 30-operation spec can generate more than 40 cases, and the
-overflow is discarded with no signal in the `POST /targets` response (which reports
-`synth_cases` and `llm_cases` counts only). An operator connecting a large API gets a
-partial case set and no indication that it is partial.
+**Was:** the loop broke once `MAX_TOTAL_CASES` (40) was reached and `POST /targets` reported
+only `synth_cases` and `llm_cases` counts, so an operator connecting a 30-operation spec
+got 40 of ~160 cases with no signal that the set was partial. A partial case set reads as
+"GuardRail found only these problems", which is a materially different claim from "we
+probed a quarter of your spec and this is what we found".
+
+**Now:** `synthesize(operations, *, limit=MAX_TOTAL_CASES)` takes the cap as a parameter and
+`synthesize_all(operations)` is `synthesize(..., limit=None)`. `register_target` generates
+uncapped, slices to `MAX_TOTAL_CASES`, and returns the honest count:
+
+```json
+{ "synth_cases": 40, "llm_cases": 4,
+  "synth_cases_generated": 160, "synth_truncated": true }
+```
+
+`useCreateTarget` turns a truncated result into a `toast.warning` (12s, unlike the success
+toast) naming both numbers and stating that the later endpoints were not probed.
+
+**The stored case set is byte-identical to before** — verified that `synthesize(ops) ==
+synthesize_all(ops)[:MAX_TOTAL_CASES]` across 1/5/8/20/60-operation specs, and that the
+per-operation cap still holds. Only the *reporting* changed. Generating the tail costs a few
+dicts and buys the count; the 40-case cap governs what is **probed**, not what is generated.
+
+`MAX_TOTAL_CASES` is still a hard constant with no env override (§21.2), so the honest
+remedy for a large spec is a narrower one — which is what the toast says.
 
 ### 22.5 `reasons` loses detail on a `keep` with Jev enabled
 
@@ -2392,18 +2415,50 @@ advisory does not appear in the `reasons` list. The detail is still in the Propo
 `evidence` arrays, so the information is not lost from the report — only from the summary
 line. The no-Jev path (`jev is None`) does preserve the rules' reasons.
 
-### 22.6 MTTD / MTTR are named in `TEAM.md` but not implemented
+### 22.6 ~~MTTD / MTTR are named in `TEAM.md` but not implemented~~ — implemented
 
-`docs/TEAM.md` lists "MTTD/MTTR timers" as Track B dashboard scope. A repo-wide grep finds
-no implementation. The data to build them exists (`logs.timestamp`, `audit.created_at`,
-`proposals.created_at`), so it is a UI feature, not a design gap.
+**Now implemented** as two `StatCard`s on the Overview page, computed client-side by
+`apps/web/src/lib/mttd-mttr.ts` (a pure function over rows) and fetched by
+`useDetectionMetrics`. Reads Postgres directly for `logs` — the same path as `use-logs.ts`,
+RLS-gated to admins — and the agent forwarders for `proposals` / `audit`. No new endpoint,
+no migration, no agent change: the three timestamps already existed.
+
+**Both numbers are defined narrowly, and the captions say so.** An unqualified "mean time to
+detect" invites the reader to assume deploy-to-detect, which GuardRail structurally cannot
+measure — it sees a failing probe, not a bad deploy.
+
+| Metric | Measured from → to | Samples |
+|---|---|---|
+| **MTTD** | first `canary` row with `status_code ≥ 500` **inside the agent's own 1h window**, → the escalating `proposals.created_at` | one per escalating Proposal set |
+| **MTTR** | the `proposals.created_at` of the Proposal named in `audit.proposal.proposal_id`, → that `audit.created_at` | one per Execution |
+
+Three decisions that make the numbers defensible rather than merely present:
+
+- **The attribution window is the agent's.** A Decision only reads an hour back
+  (`RECENT_WINDOW_SECONDS`), so an error older than that cannot be what triggered it.
+  Counting it anyway attributes a week-old failure to today's Decision and inflates MTTD
+  without bound. Escalations with no failing probe in the window (a `latency_regress` or
+  `status_divergence` escalation) contribute **no sample** and are counted in `unattributed`,
+  which the caption surfaces — rather than a fabricated one.
+- **Negative samples are dropped, not clamped.** Clock skew or a backdated row must not read
+  as "instant".
+- **`proxy->*` rows are excluded**, and only `service = "canary"` counts, mirroring §11.2.
+
+`ERROR_THRESHOLD` (500) and `RECENT_WINDOW_MS` (3 600 000) are re-declared in the TS module
+with comments naming their Python originals, the same way `packages/contracts` mirrors
+`workers/shared`. Nothing enforces that they stay equal.
+
+**Sample size is small and the UI admits it:** the agent caps `/proposals` at 10 and `/audit`
+at 20, so a mean draws on at most 10 escalations and 20 executions. The card prints the
+sample count. Against real data the metric shows genuine spread — an escalation run 1m 42s
+after the first bad probe with a 41s approval, versus ones left sitting for ~50m.
 
 ### 22.7 Dead code
 
 | Symbol | Status |
 |---|---|
 | `useDecide` / `postDecide` | Wired through `use-agent-queries.ts` and `api.ts` and exposed by the agent's `/decide` — but no component calls them. The dashboard uses `/propose` |
-| `StatCard` | Exported from `stat-cards.tsx`, never used. `ProxyStatusCard` and `AgentHealthCard` are bespoke |
+| ~~`StatCard`~~ | **Now used** — the MTTD/MTTR tiles on the Overview page are the two generic cards (§22.6). `ProxyStatusCard` and `AgentHealthCard` remain bespoke |
 | `RefreshButton` | Exported from `shared/refresh-button.tsx`, never used. Both places that need it inline a `Button` + `RiRefreshLine` |
 | `--font-heading` | Referenced in `globals.css` `@theme inline`, never defined |
 | `bob_criticality(spec_dir=…)` | The parameter is ignored; kept for import compatibility |
