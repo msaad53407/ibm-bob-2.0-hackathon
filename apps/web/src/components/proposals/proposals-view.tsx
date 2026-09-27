@@ -112,9 +112,9 @@ function ProposalCard({
               </p>
               <RiskBar risk={proposal.risk} />
             </div>
-            {proposal.evidence.length > 0 && (
+            {(proposal.evidence?.length ?? 0) > 0 && (
               <ul className="mt-2 space-y-0.5 border-l pl-2">
-                {proposal.evidence.map((e, i) => (
+                {proposal.evidence!.map((e, i) => (
                   <li key={i} className="font-mono text-[10px] text-muted-foreground">
                     {e}
                   </li>

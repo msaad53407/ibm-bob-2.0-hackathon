@@ -40,8 +40,15 @@ export type ProposalItem = {
   execute: { target: "stable" | "canary" } | null;
   kind: FindingKind;
   tier: "critical" | "high";
-  /** The concrete rows behind the finding — statuses, counts, case labels. */
-  evidence: string[];
+  /**
+   * The concrete rows behind the finding — statuses, counts, case labels.
+   *
+   * Optional because Proposal sets persisted before `evidence` was added to the
+   * agent still exist in the `proposals` table and are replayed by /proposals.
+   * Persisted history cannot be retrofitted, so readers must tolerate its
+   * absence rather than assume the current writer's shape.
+   */
+  evidence?: string[];
 };
 
 /** Persisted proposal set from /proposals list or /propose response */
