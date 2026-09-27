@@ -269,6 +269,7 @@ guardrail/
 ├── AGENTS.md                     Agent instructions (issue tracker, labels, domain docs)
 ├── docker-compose.yml            The 6 services + their env
 ├── turbo.json                    Turbo task graph (build/dev/lint/typecheck, JS only)
+├── pnpm-lock.yaml                Pinned deps — `pnpm install --frozen-lockfile` must exit 0
 ├── pnpm-workspace.yaml           apps/*, services/proxy, packages/*
 │
 ├── packages/contracts/           TypeScript shared contract — consumed by the Proxy
@@ -2190,8 +2191,9 @@ Three are worth reading before changing anything in `domain/`:
 | `spec_parse` and `synthesize` | Pure and easily testable, but currently uncovered. `SpecError` messages and the synthesis strategies are the highest-value targets |
 | Route Handlers | Session gates, identity rewriting, and the `503` paths are the highest-risk untested surface |
 | Realtime `use-logs` | Requires a browser and a live project |
-| Python type checking | No mypy/pyright config; the `AnyHttpUrl` defaults carry `# type: ignore[assignment]` |
+| Python type checking | No mypy/pyright config; the `AnyHttpUrl` defaults carry `# type: ignore[assignment]`. The JS side *is* covered — `pnpm run typecheck` runs `tsc --noEmit` over `apps/web` and `packages/contracts` |
 | End-to-end | `docs/TEAM.md` schedules a manual full dry-run instead (Hr 44) |
+| Lockfile ↔ manifest agreement | Nothing asserts `pnpm install --frozen-lockfile` succeeds. The lockfile outlived the Next 16 / React 19 upgrade and pinned Next 14 / React 18, so a clean checkout could not install until it was re-locked — with no test to catch a recurrence |
 
 ---
 

@@ -232,10 +232,12 @@ pnpm --filter @guardrail/proxy test                                  #  9
 
 The agent suites are pure domain tests — no Supabase, no network, no mocks. `test_compare.py` covers the pairing layer, including the masking regression described above.
 
-For the dashboard:
+For the dashboard, lint and typecheck are wired into Turbo and both must be green:
 
 ```bash
-cd apps/web && pnpm exec tsc --noEmit && pnpm run build && pnpm exec eslint src/
+pnpm run lint         # eslint across web + proxy
+pnpm run typecheck    # tsc --noEmit on web + contracts
+pnpm run build        # next build
 ```
 
 > [!TIP]
