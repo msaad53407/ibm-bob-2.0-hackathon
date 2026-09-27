@@ -74,10 +74,15 @@ async function forward(req: NextRequest, path: string[]) {
     }
   } else if (first === "targets" && rest.length === 0) {
     // Owner-scoped listing: runner filters by owner email.
-    const upstream = await fetch(
-      `${RUNNER_URL}/targets?owner=${encodeURIComponent(email)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    let upstream: Response;
+    try {
+      upstream = await fetch(
+        `${RUNNER_URL}/targets?owner=${encodeURIComponent(email)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch {
+      return runnerDown();
+    }
     const text = await upstream.text();
     const out = new NextResponse(text, {
       status: upstream.status,
@@ -88,14 +93,19 @@ async function forward(req: NextRequest, path: string[]) {
     for (const c of res.cookies.getAll()) out.cookies.set(c.name, c.value);
     return out;
   }
-  const upstream = await fetch(url, {
-    method: req.method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, {
+      method: req.method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+    });
+  } catch {
+    return runnerDown();
+  }
   const text = await upstream.text();
   const out = new NextResponse(text, {
     status: upstream.status,
@@ -105,6 +115,18 @@ async function forward(req: NextRequest, path: string[]) {
   });
   for (const c of res.cookies.getAll()) out.cookies.set(c.name, c.value);
   return out;
+}
+
+/** Name the service that is down instead of surfacing a bare 500. */
+function runnerDown(): NextResponse {
+  return NextResponse.json(
+    {
+      error: "traffic-runner unreachable",
+      detail:
+        "workers/traffic-runner is not responding — docker compose ps -a, then docker compose logs traffic-runner",
+    },
+    { status: 503 },
+  );
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };

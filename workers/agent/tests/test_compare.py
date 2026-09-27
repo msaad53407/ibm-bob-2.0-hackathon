@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain.compare import (  # noqa: E402
     CANARY_ERROR, LATENCY_REGRESS, OK, SHARED_ERROR, STABLE_ERROR,
-    STATUS_DIVERGENCE, advisory, findings, pair_deltas, percentile, request_key,
-    tier_of,
+    STATUS_DIVERGENCE, advisory, findings, method_of, pair_deltas, percentile,
+    request_key, tier_of,
 )
 
 NOW = "2026-09-26T12:00:00+00:00"
@@ -109,7 +109,31 @@ class TestPairing(unittest.TestCase):
             for s in ("stable", "canary")
         ]
         self.assertEqual(len(pairs(rows)), 2)
-        self.assertEqual(request_key(rows[0]), ("", "/search?q=normal", "/search?q=normal"))
+        self.assertEqual(request_key(rows[0]), ("ANY", "/search?q=normal", "/search?q=normal"))
+
+    def test_method_recovered_from_a_demo_label(self):
+        """Rows predating case_method keep one bucket per route, not two."""
+        old = [
+            {"timestamp": NOW, "service": s, "endpoint": "/checkout", "case_method": None,
+             "case_label": "demo:POST /checkout #4", "case_tier": "critical",
+             "case_source": "demo", "status_code": st, "latency_ms": 10}
+            for s, st in (("stable", 400), ("canary", 500))
+        ]
+        new = [
+            dict(r, case_method="POST", case_label="demo:POST /checkout #4")
+            for r in old
+        ]
+        self.assertEqual(len(pairs(old + new)), 1, "one route, one finding")
+        self.assertEqual(pairs(old + new)[0].method, "POST")
+
+    def test_method_is_never_guessed(self):
+        """An LLM label that merely starts with a verb is not a method."""
+        row_llm = {"timestamp": NOW, "service": "canary", "endpoint": "/todos",
+                   "case_method": None, "case_label": "GET requires auth",
+                   "case_tier": "high", "case_source": "llm",
+                   "status_code": 500, "latency_ms": 5}
+        self.assertEqual(method_of(row_llm), "ANY")
+        self.assertEqual(method_of({"case_method": "put"}), "PUT")
 
     def test_proxy_rows_are_ignored(self):
         self.assertEqual(pairs([

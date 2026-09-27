@@ -38,14 +38,25 @@ export async function POST(req: NextRequest) {
   } catch {
     body = undefined;
   }
-  const upstream = await fetch(`${TRAFFIC_RUNNER_URL}/run`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${TRAFFIC_RUNNER_URL}/run`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+    });
+  } catch {
+    return NextResponse.json(
+      {
+        error: "traffic-runner unreachable",
+        detail: "workers/traffic-runner is not responding — docker compose ps -a, then docker compose logs traffic-runner",
+      },
+      { status: 503 },
+    );
+  }
   const text = await upstream.text();
   return new NextResponse(text, {
     status: upstream.status,

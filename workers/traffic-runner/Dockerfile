@@ -15,11 +15,12 @@ COPY traffic-runner/pyproject.toml ./
 RUN pip install --no-cache-dir "httpx>=0.27" "supabase>=2.4" "pydantic-settings>=2.2" "fastapi>=0.110" "uvicorn>=0.29" "pyyaml>=6.0"
 
 RUN useradd --create-home --uid 10001 appuser
+# Whole package directories, not per-file lists — see agent/Dockerfile.
 COPY --chown=appuser:appuser traffic-runner/_paths.py ./
-COPY --chown=appuser:appuser traffic-runner/api/__init__.py traffic-runner/api/app.py ./api/
-COPY --chown=appuser:appuser traffic-runner/domain/__init__.py traffic-runner/domain/probe.py traffic-runner/domain/spec_parse.py traffic-runner/domain/synthesize.py ./domain/
-COPY --chown=appuser:appuser traffic-runner/adapters/__init__.py traffic-runner/adapters/store.py traffic-runner/adapters/llm.py ./adapters/
-COPY --chown=appuser:appuser traffic-runner/config/__init__.py traffic-runner/config/settings.py ./config/
+COPY --chown=appuser:appuser traffic-runner/api/ ./api/
+COPY --chown=appuser:appuser traffic-runner/domain/ ./domain/
+COPY --chown=appuser:appuser traffic-runner/adapters/ ./adapters/
+COPY --chown=appuser:appuser traffic-runner/config/ ./config/
 COPY --chown=appuser:appuser shared/log_row.py shared/verification.py ./shared/
 USER appuser
 

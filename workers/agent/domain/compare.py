@@ -18,6 +18,8 @@ Interface (test surface, see tests/test_compare.py):
   pair_deltas(rows, crit) -> list[Delta]   # one per request, both sides
   findings(deltas, factor) -> list[Delta]  # the subset worth escalating
 """
+import re
+
 import _paths  # noqa: F401 — ensures shared/ is importable
 from log_row import ServiceName, is_error  # noqa: E402
 from verification import LATENCY_DEGRADATION_FACTOR as SPEC_LATENCY_FACTOR  # noqa: E402
@@ -128,16 +130,36 @@ def path_of(endpoint: str) -> str:
     return endpoint.split("?", 1)[0]
 
 
+_DEMO_LABEL = re.compile(r"^demo:([A-Z]+)\b")
+
+
+def method_of(row: dict) -> str:
+    """The HTTP method behind a row, or 'ANY' when the row can't say.
+
+    Rows written before the attribution columns existed have no case_method.
+    For the runner's own demo label the method is still recoverable
+    ('demo:POST /checkout #4'), which keeps a route from splitting into an
+    'ANY' bucket and a 'POST' bucket. Anything else stays 'ANY' rather than
+    guessed at.
+    """
+    method = row.get("case_method")
+    if method:
+        return str(method).upper()
+    label = row.get("case_label") or ""
+    m = _DEMO_LABEL.match(label)
+    return m.group(1) if m else "ANY"
+
+
 def request_key(row: dict) -> tuple:
     """Bucket key for one row: same request on the same route + same input.
 
     `case_label` is the runner's case identity, so two rows of the same case
     collapse into one bucket even if the URL encoding differs. Rows without
-    attribution (demo traffic) fall back to the exact path with query.
+    attribution fall back to the exact path with query.
     """
     label = row.get("case_label")
     path = path_of(row["endpoint"]) if label else row["endpoint"]
-    return (row.get("case_method") or "", path, label or row["endpoint"])
+    return (method_of(row), path, label or row["endpoint"])
 
 
 def percentile(values: list[int], q: float) -> int:
@@ -191,7 +213,7 @@ def pair_deltas(rows: list[dict], crit: dict,
         bucket = buckets.setdefault(key, {
             "stable": [], "canary": [], "tier": row.get("case_tier"),
             "source": row.get("case_source"), "label": row.get("case_label"),
-            "method": row.get("case_method") or "",
+            "method": key[0],
         })
         bucket[row["service"]].append(row)
         # First attribution seen wins; all rows in a bucket share a case.
@@ -208,7 +230,7 @@ def pair_deltas(rows: list[dict], crit: dict,
         s_lat = [r["latency_ms"] for r in stable]
         c_lat = [r["latency_ms"] for r in canary]
         delta = Delta(
-            method=bucket["method"] or "ANY",
+            method=bucket["method"],
             path=path,
             label=bucket["label"],
             tier=bucket["tier"] or tier_of(crit, path),

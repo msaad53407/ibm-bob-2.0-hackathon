@@ -66,3 +66,21 @@ proposals, human click executes a real flip, audit row is append-only, timers ru
 Auth notes: Supabase Auth → admin allowlist (`admins` table, migration `0005`).
 Service writes use the service key (bypass RLS); anon reads/writes are denied.
 For demo smoothness, disable "Confirm email" in Supabase Auth settings or create users under Auth → Users.
+
+## Troubleshooting
+
+**A dashboard page returns 500 and a service is missing from `docker compose ps`.**
+Plain `docker compose ps` hides *exited* containers, so a service that died on
+boot looks absent rather than broken. Use `docker compose ps -a`, then
+`docker compose logs <service>`. The usual cause is an import error in a
+Python worker — the image copies whole package directories, so a new module
+picked up in one rebuild but not the other is the thing to check. The web
+forwarders return `503 {"error": "agent unreachable" | "traffic-runner
+unreachable"}` with the same hint, so a 503 names the service; a 500 means the
+upstream answered and actually failed.
+
+**`/decide` says "no canary-only difference across 0 paired probes".** The
+analysis only looks at the last hour (`RECENT_WINDOW_SECONDS`). Fire a fresh
+batch from `/verification` → *Run traffic* (or `/targets` for an external pair)
+first. External targets also need live URLs — an ngrok tunnel from yesterday is
+dead, and those probes will read as transport errors.

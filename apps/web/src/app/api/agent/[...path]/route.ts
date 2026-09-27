@@ -65,14 +65,18 @@ async function forward(req: NextRequest, path: string[]) {
       body = await req.arrayBuffer();
     }
   }
-  const upstream = await fetch(url, {
-    method: req.method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body,
-  });
+  const { res: upstream, reachable } = await fetchAgent(url, req.method, token, body);
+  if (!reachable) {
+    // Say which service is down — a bare 500 "fetch failed" sends you hunting
+    // through the dashboard instead of straight to the container logs.
+    return NextResponse.json(
+      {
+        error: "agent unreachable",
+        detail: "workers/agent is not responding — docker compose ps -a, then docker compose logs agent",
+      },
+      { status: 503 },
+    );
+  }
   const text = await upstream.text();
   const out = new NextResponse(text, {
     status: upstream.status,
@@ -85,6 +89,33 @@ async function forward(req: NextRequest, path: string[]) {
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };
+
+/**
+ * Call the internal agent. A rejected connection means the container is gone
+ * (it exits on an import error, and plain `docker compose ps` hides exited
+ * containers — use `docker compose ps -a`), which is worth distinguishing
+ * from a real upstream status.
+ */
+async function fetchAgent(
+  url: string,
+  method: string,
+  token: string,
+  body: ArrayBuffer | string | undefined,
+): Promise<{ res: Response; reachable: boolean }> {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+    });
+    return { res, reachable: true };
+  } catch {
+    return { res: new Response(null, { status: 503 }), reachable: false };
+  }
+}
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   return forward(req, (await ctx.params).path);
