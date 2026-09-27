@@ -345,7 +345,7 @@ guardrail/
 │       ├── lib/                  api client, supabase clients, query client
 │       └── types/guardrail.ts    Hand-mirrored API types
 │
-├── supabase/migrations/          0001 → 0008, applied in order
+├── supabase/migrations/          0001 → 0009, applied in order
 ├── docs/                         This file, ADRs, TEAM.md, TRACK_A_PRESENTATION.md
 └── .bob/                         IBM Bob artifacts
 ```
@@ -1046,7 +1046,7 @@ lives in `POST /execute` as a `proposal_id` allowlist check against the persiste
 | `list_proposals(client, limit=10)` / `list_audit(client, limit=20)` | Newest first via `created_at desc` |
 | `get_proposal_set(client, id)` | `None` on failure or missing row — the gate's first rejection reason |
 | `get_target_inventory(client, id)` | `None` on failure, missing row, or non-list `inventory` |
-| `record_audit(...)` | **No try/except** — see §22.3 |
+| `record_audit(...)` | **No try/except** — a failed audit record is worth surfacing, and the flip has already happened by then (§22.3) |
 
 `adapters/proxy.py` is seven lines: `flip_proxy(target)` POSTs `PROXY_ADMIN_URL` with
 `{"target": target}` and `Authorization: Bearer ADMIN_TOKEN`, 5s timeout, returns the
@@ -1541,7 +1541,7 @@ always supplies the session email, and the runner rejects a blank one with a 400
 
 ## 14. Database
 
-Supabase Postgres, eight migrations, six tables, RLS on everything. No ORM — the Python
+Supabase Postgres, nine migrations, six tables, RLS on everything. No ORM — the Python
 side uses `supabase-py`, the Node side `@supabase/supabase-js`, the browser
 `@supabase/supabase-js` in the client.
 
@@ -1599,6 +1599,11 @@ looks like a failure.
 | `action` | `text` | `flip to stable` \| `flip to canary` |
 | `outcome` | `text` | `proxy=<status code>` — the Proxy's real response code, success or not |
 | `proposal` | `jsonb` | `{target, proposal_id}` — links the execution to the Proposal that authorised it |
+| `target_id` | `uuid → target_pairs(id) on delete set null` | added in 0009; the target pair an Execution belongs to, NULL for demo traffic |
+
+`target_id` is **advisory, never authorising**: external pairs are structurally
+unapprovable (§11.9), so a non-NULL value here records where an Execution came from — it
+never means GuardRail was permitted to act on that pair's traffic.
 
 **Immutability is a policy property, not a convention.** Migration 0005 drops the open
 `read all` / `insert all` policies and creates admin-only `SELECT`. There is **no INSERT,
@@ -1694,6 +1699,7 @@ exists (select 1 from public.admins a where a.email = (auth.jwt() ->> 'email'))
 | 0006 | `target_pairs`, `probe_cases`, `logs.target_id`, `proposals.target_id` | BYO-API. `can_flip` false from the start |
 | 0007 | `case_tier`, `case_source`, `case_label`, `probe_cases.label`, `logs_case_idx` | Per-case attribution so the agent can pair the *same request* across sides |
 | 0008 | `case_method` | A label is not unique per operation and a path is not unique per method; the pairing key needs all three |
+| 0009 | `audit.target_id` | The agent has always written it; without the column `POST /execute` 500ed *after* the flip, leaving a completed Execution with no audit row (§22.3) |
 
 ## 15. Security model
 
@@ -2057,7 +2063,7 @@ cp .env.example .env
 #    fill SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY
 #    ADMIN_TOKEN: openssl rand -hex 32
 
-# 2. Schema — all eight, in order
+# 2. Schema — all nine, in order
 supabase db push          # or paste supabase/migrations/*.sql into the SQL editor
 
 # 3. Realtime (once per project) — otherwise the Verification stream is silent
@@ -2116,7 +2122,8 @@ anyone clicks. The Proposal set does not — run the Decision explicitly.
 | Verification page loads rows but nothing streams | `logs` is not in the `supabase_realtime` publication | `alter publication supabase_realtime add table logs;` |
 | Login loops back to `/login` | Session in localStorage instead of cookies, or an expired session | `getSupabase()` must use `createBrowserClient`; Server Components cannot refresh cookies, so an expired session redirects by design |
 | Logged in but "Not an admin" | The JWT email is not in `admins` | `insert into admins (email) values ('<your address>');` |
-| `POST /execute` returns 500 and the agent logs a PostgREST error | `audit.target_id` is written by the agent but the column is not in any migration — see §22.3 | Add the column, or drop `target_id` from the insert |
+| `POST /execute` returns 500 and the agent logs a PostgREST error | `audit.target_id` was written by the agent but the column did not exist before `0009` — see §22.3 | Apply `0009_audit_target_id.sql`, or drop `target_id` from the insert in `store.py` |
+| Traffic flipped but `/audit` shows no row for it | The same `audit.target_id` failure — the flip succeeds before the audit write | Apply `0009`. The write order is deliberate, so a failed audit write never rolls the flip back |
 | Proxy target resets to Stable | Routing state is in memory | Expected. The flip is in `logs.note` and `audit`; the state is not replayed on boot |
 
 ### 18.5 Observability
@@ -2325,27 +2332,47 @@ consumed by the web app (which uses its own types file) and not by the agent (Py
 nothing breaks today — but if anything ever imports `Proposal` from the package and assumes
 it is the whole object, it will be incomplete.
 
-### 22.3 `audit.target_id` is written but never created
+### 22.3 ~~`audit.target_id` is written but never created~~ — fixed by `0009`
 
-`agent/adapters/store.py:record_audit` inserts `"target_id": target_id`, and
-`POST /execute` passes `a.target_id` through. **No migration adds a `target_id` column to
-`audit`** — `0006_external_targets.sql` adds it to `logs` and `proposals` only.
+**Was the single worst bug on this checkout.** `agent/adapters/store.py:record_audit`
+inserts `"target_id": target_id`, and `POST /execute` passes `a.target_id` through, but
+`0006_external_targets.sql` had added the column to `logs` and `proposals` only.
 
-PostgREST rejects an insert containing a key that is not a column, so on a project that has
-applied exactly these eight migrations, `POST /execute` will fail with a
+PostgREST rejects an insert containing a key that is not a column, so on a project built
+from exactly the eight migrations that existed, `POST /execute` failed with a
 `PGRST204`-class error — and unlike the other history writes, `record_audit` has **no
-`try/except`**, so the failure surfaces as a 500 *after* the Proxy has already been flipped.
-The fix is one line:
+`try/except`**, so it surfaced as a 500 *after* the Proxy had already been flipped. The
+symptom was the worst shape a governance tool can have: **the traffic flip succeeded and no
+audit row existed**, i.e. a completed Execution with no record of who authorised it.
+
+`0009_audit_target_id.sql` adds the column:
 
 ```sql
 alter table audit add column if not exists target_id uuid references target_pairs(id) on delete set null;
 ```
 
-If your project has that column already (added by hand), this does not apply — but the
-migration set is the documented source of truth, so it is worth checking before a demo.
-Note the ordering problem if you fix it: the flip happens before the audit write, so any
-audit failure leaves a completed flip with no record. The order is deliberate (never block
-the flip on a log write), but it means audit failures should be visible in monitoring.
+It is `on delete set null`, matching `logs` and `proposals` — deleting a target pair
+orphans the rows rather than cascading a large delete. No index: `audit` is read
+newest-first by `created_at` and is orders of magnitude smaller than `logs`.
+
+> **A project that predates `0009` must apply it.** The column was also missing on
+> hand-patched databases, and `record_audit` will keep 500ing until it exists. If you
+> cannot apply the migration, the alternative is dropping `target_id` from the insert in
+> `store.py` — but the migration is the fix, since `POST /execute` genuinely passes the
+> value.
+
+**What this gap class is.** The bug was not "someone forgot a column" but "nothing checks
+that the keys an adapter inserts exist in the schema". The three Python writers
+(`save_proposals`, `record_audit`, `save_rows`) all build dict literals against a schema
+that lives in `.sql` files, with no shared definition and no test. `0007`/`0008` added
+`case_*` columns that only one worker read, and `0006` added `target_id` to two of three
+tables. A cross-check that parses each adapter's insert keys against the migrations would
+catch the whole class.
+
+One ordering property is unchanged and still true: the flip happens before the audit
+write, so any *future* audit failure still leaves a completed flip with no record. The
+order is deliberate (never block the flip on a log write) — but it means audit failures
+should be visible in monitoring, not merely non-fatal.
 
 ### 22.4 Silent truncation in `synthesize`
 
