@@ -60,6 +60,10 @@ def make_log_row(
     error_text: str | None = None,
     note: str | None = None,
     trace_id: str | None = None,
+    case_tier: str | None = None,
+    case_source: str | None = None,
+    case_label: str | None = None,
+    case_method: str | None = None,
 ) -> dict[str, Any]:
     """
     Constructs a LogRow dict ready for insertion into the logs table.
@@ -72,6 +76,14 @@ def make_log_row(
         error_text:   Raw response body or exception string. Truncated automatically.
         note:         Non-error annotation (e.g. Traffic flip events). NULL unless set.
         trace_id:     UUID string. Generated automatically if omitted.
+        case_tier:    'critical' | 'high' — tier of the probe case behind this row.
+                      NULL for demo traffic (canonical CASES carry no metadata).
+        case_source:  'synth' | 'llm' | 'demo' — how the case was generated.
+        case_label:   Short case identity ('drop-required:title', 'enum:priority').
+        case_method:  HTTP method the case was fired with.
+
+        (case_method, path, case_label) together are the join key the Decision
+        pairs stable/canary responses on: the same request, fired at both sides.
     """
     return {
         "timestamp": now_iso(),
@@ -82,4 +94,8 @@ def make_log_row(
         "error_message": error_msg(error_text, status_code),
         "note": note,
         "trace_id": trace_id or str(uuid.uuid4()),
+        "case_tier": case_tier,
+        "case_source": case_source,
+        "case_label": case_label,
+        "case_method": case_method,
     }

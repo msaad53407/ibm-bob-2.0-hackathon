@@ -4,3 +4,4 @@
 export { EnvSchema, parseEnv } from "./config.js";
 export { createSupabaseClient } from "./supabase.js";
 export { makeFlipRow, createLogger } from "./logger.js";
+export { createAdminAuth, isAuthorized } from "./auth.js";

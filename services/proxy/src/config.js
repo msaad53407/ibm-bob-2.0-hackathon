@@ -8,6 +8,7 @@ export const EnvSchema = z.object({
   CANARY_URL:           z.string().url().default("http://canary:8000"),
   SUPABASE_URL:         z.string().url({ message: "SUPABASE_URL must be a valid URL" }),
   SUPABASE_SERVICE_KEY: z.string().min(1, { message: "SUPABASE_SERVICE_KEY is required" }),
+  ADMIN_TOKEN:          z.string().min(16, { message: "ADMIN_TOKEN must be at least 16 chars" }),
 });
 
 export function parseEnv(source) {

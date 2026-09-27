@@ -3,6 +3,18 @@ import type { ServiceNameValue } from "./service-name.js";
 export const ERROR_THRESHOLD = 500; // status_code >= this is an error
 export const ERROR_MSG_MAX_LEN = 500;
 
+/** Probe-case attribution. NULL for demo traffic (canonical CASES carry none). */
+export type CaseAttribution = {
+  /** "critical" | "high" */
+  case_tier: string | null;
+  /** "synth" | "llm" | "demo" */
+  case_source: string | null;
+  /** Short case identity, e.g. "drop-required:title" */
+  case_label: string | null;
+  /** HTTP method the case was fired with */
+  case_method: string | null;
+};
+
 export type LogRow = {
   timestamp: string;
   service: ServiceNameValue;
@@ -12,7 +24,7 @@ export type LogRow = {
   error_message: string | null;
   note: string | null;
   trace_id: string;
-};
+} & CaseAttribution;
 
 export function isError(statusCode: number): boolean {
   return statusCode >= ERROR_THRESHOLD;
@@ -39,7 +51,7 @@ export type MakeLogRowInput = {
   error_text?: string | null;
   note?: string | null;
   trace_id?: string;
-};
+} & Partial<CaseAttribution>;
 
 export function makeLogRow(input: MakeLogRowInput): LogRow {
   return {
@@ -51,5 +63,9 @@ export function makeLogRow(input: MakeLogRowInput): LogRow {
     error_message: errorMessage(input.error_text ?? null, input.status_code),
     note: input.note ?? null,
     trace_id: input.trace_id ?? crypto.randomUUID(),
+    case_tier: input.case_tier ?? null,
+    case_source: input.case_source ?? null,
+    case_label: input.case_label ?? null,
+    case_method: input.case_method ?? null,
   };
 }

@@ -1,6 +1,20 @@
+# Context: repo root (proxy image).
+# Bare names match root level; **/ variants cover nested dirs
+# (e.g. services/proxy/node_modules would otherwise be sent to the daemon).
 node_modules
+**/node_modules
 dist
+**/dist
 .next
+**/.next
+*.tsbuildinfo
+**/*.tsbuildinfo
+__pycache__
+**/__pycache__
+*.pyc
+**/*.pyc
+.venv
+**/.venv
 .git
 .bob
 supabase
@@ -8,4 +22,8 @@ workers
 apps
 services/api-demo
 *.log
+**/*.log
 .env
+**/.env
+.turbo
+coverage
