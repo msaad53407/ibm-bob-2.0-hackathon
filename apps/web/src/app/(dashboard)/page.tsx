@@ -8,7 +8,6 @@ import Link from "next/link";
 import { ProxyStatusCard, AgentHealthCard } from "@/components/dashboard/stat-cards";
 import { RecentDecisionsCard } from "@/components/dashboard/recent-decisions";
 import { PageHeader } from "@/components/shared/page-header";
-import { Button } from "@/components/ui/button";
 
 const quickLinks = [
   {
