@@ -6,9 +6,9 @@ import {
 } from "@remixicon/react";
 import Link from "next/link";
 import { ProxyStatusCard, AgentHealthCard } from "@/components/dashboard/stat-cards";
+import { DetectionMetricsCards } from "@/components/dashboard/detection-metrics";
 import { RecentDecisionsCard } from "@/components/dashboard/recent-decisions";
 import { PageHeader } from "@/components/shared/page-header";
-import { Button } from "@/components/ui/button";
 
 const quickLinks = [
   {
@@ -43,6 +43,16 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <ProxyStatusCard />
         <AgentHealthCard />
+      </div>
+
+      {/* Detection / remediation latency */}
+      <div>
+        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Detection &amp; Remediation
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DetectionMetricsCards />
+        </div>
       </div>
 
       {/* Recent decisions */}

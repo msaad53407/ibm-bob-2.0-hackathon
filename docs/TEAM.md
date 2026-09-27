@@ -29,8 +29,11 @@ Owns: `workers/agent/api/app.py` (`/decide` pairs the same probe on both sides
 and escalates on any Canary-only 5xx or latency regression, `/propose` ranked
 per-finding proposals with derived severity/blast-radius/reversibility,
 `/execute` real flip call + audit insert), `apps/web/` (live metrics via Realtime,
-proposal cards, approve/deny, audit viewer, MTTD/MTTR timers), `supabase`
-proposals/audit tables, demo script + video + submission.
+proposal cards, approve, audit viewer, MTTD/MTTR timers on the Overview page),
+`supabase` proposals/audit tables, demo script + video + submission.
+
+Not yet built from this list: **deny** — there is no reject path, so a Proposal
+set an operator does not want can only be ignored, never declined on the record.
 
 Done when: escalate triggers on the 2 planted bugs, dashboard shows ranked
 proposals, human click executes a real flip, audit row is append-only, timers run.

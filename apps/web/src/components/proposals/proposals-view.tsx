@@ -7,7 +7,6 @@ import {
   RiInformationLine,
   RiArrowRightLine,
 } from "@remixicon/react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -234,7 +233,7 @@ function ProposalSetBlock({ set, isLatest, advisory }: ProposalSetBlockProps) {
 // ── Public component ──────────────────────────────────────────────────────────
 
 export function ProposalsView({ targetId }: { targetId?: string | null }) {
-  const { data: proposals, isLoading, refetch, isFetching } = useProposals();
+  const { data: proposals, isLoading, isFetching } = useProposals();
   const { mutate: propose, isPending: isProposing } = usePropose(targetId);
   const { data: targets } = useTargets();
   const advisory = !!targetId;

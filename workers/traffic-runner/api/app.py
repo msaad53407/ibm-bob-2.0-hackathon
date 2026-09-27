@@ -22,7 +22,7 @@ import _paths  # noqa: F401 — ensures shared/ is importable
 from log_row import ServiceName  # noqa: E402
 from domain.probe import collect_rows, fire_case
 from domain.spec_parse import SpecError, parse_spec
-from domain.synthesize import synthesize
+from domain.synthesize import MAX_TOTAL_CASES, synthesize_all
 from adapters.llm import enhance_with_llm
 from config.settings import (
     ADMIN_TOKEN, CANARY, CASE_REPEATS, INTERVAL_SECONDS, LLM_MODEL, LLM_TIMEOUT,
@@ -115,7 +115,11 @@ def register_target(owner_email: str, stable_url: str, canary_url: str,
     except SpecError as exc:
         raise ValueError(str(exc)) from exc
     operations = inventory["operations"]
-    synth = synthesize(operations)
+    # Synth first, uncapped, so the response can say whether the stored set was
+    # truncated. A large spec is a real case (30 operations easily exceeds 40
+    # cases) and an operator deserves to know their case set is partial.
+    every = synthesize_all(operations)
+    synth = every[:MAX_TOTAL_CASES]
     llm_cases = _dry_fire_stable(
         enhance_with_llm(operations, api_key=OPENROUTER_API_KEY,
                          model=LLM_MODEL, timeout=LLM_TIMEOUT),
@@ -127,7 +131,12 @@ def register_target(owner_email: str, stable_url: str, canary_url: str,
     save_cases(client, target_id, synth + llm_cases)
     return {"target_id": target_id,
             "endpoints": len(operations),
-            "synth_cases": len(synth), "llm_cases": len(llm_cases)}
+            "synth_cases": len(synth), "llm_cases": len(llm_cases),
+            # synth_cases_generated > synth_cases means MAX_TOTAL_CASES clipped the
+            # set. Surfaced in the UI — a silently partial case set reads as
+            # "GuardRail only found these problems" when it found a third of them.
+            "synth_cases_generated": len(every),
+            "synth_truncated": len(every) > len(synth)}
 
 
 def main():
