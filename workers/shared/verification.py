@@ -29,5 +29,16 @@ CRITICALITY: dict[str, list[str]] = {
 # Default canary-vs-stable p95 latency factor before the Decision escalates.
 LATENCY_DEGRADATION_FACTOR = 2.0
 
+# Methods whose 5xx is a regression (they change state) vs reads, which are
+# latency-sensitive instead. Single definition: the runner stamps probe rows
+# with a tier, the synthesizer assigns one, and the agent's criticality map
+# derives one — all from here, so they can never drift apart.
+CRITICAL_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def tier_for_method(method: str) -> str:
+    """Tier for a method: mutating → 'critical', reads → 'high'."""
+    return "critical" if method.upper() in CRITICAL_METHODS else "high"
+
 # How many samples per side/endpoint the latency rule needs before it fires.
 MIN_SAMPLES = 2

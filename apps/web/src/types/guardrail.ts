@@ -18,12 +18,30 @@ export type LogRow = {
 
 export type Verdict = "keep" | "escalate";
 
+/** What kind of finding a proposal addresses (see domain/compare.py kinds). */
+export type FindingKind =
+  | "flip"
+  | "advisory_hold"
+  | "canary_error"
+  | "latency_regress"
+  | "status_divergence"
+  | "shared_error"
+  | "stable_error";
+
 export type ProposalItem = {
   action: string;
+  /**
+   * Severity of the FINDING this proposal addresses (kind × tier × how hard the
+   * evidence hits) — not the chance the action fails.
+   */
   risk: number;
   blast_radius: string;
   reversibility: string;
   execute: { target: "stable" | "canary" } | null;
+  kind: FindingKind;
+  tier: "critical" | "high";
+  /** The concrete rows behind the finding — statuses, counts, case labels. */
+  evidence: string[];
 };
 
 /** Persisted proposal set from /proposals list or /propose response */

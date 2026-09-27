@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     run_once: bool = False
     run_on_start: bool = True
     interval_seconds: int = 30
+    # Times each stored case is fired per service. >1 gives per-bucket latency
+    # percentiles real samples without inflating the stored case list.
+    case_repeats: int = 2
 
     @field_validator("supabase_service_key")
     @classmethod
@@ -53,3 +56,4 @@ PORT = cfg.port
 RUN_ONCE = cfg.run_once
 RUN_ON_START = cfg.run_on_start
 INTERVAL_SECONDS = cfg.interval_seconds
+CASE_REPEATS = max(1, cfg.case_repeats)

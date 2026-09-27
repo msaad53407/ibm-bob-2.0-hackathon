@@ -49,6 +49,19 @@ def _template_match(path: str, template: str) -> bool:
     return re.match(pattern, path.split("?")[0]) is not None
 
 
+def _label(case: dict) -> str:
+    """Short, stable case identity: the model's one-line `why`, else a shape tag.
+
+    Labels land on every log row the case produces and are quoted in proposal
+    evidence, so they must be single-line and bounded.
+    """
+    why = str(case.get("why") or "").strip().splitlines()
+    text = why[0].strip() if why else ""
+    if not text:
+        return "llm-case"
+    return text[:80]
+
+
 def _valid(case: dict, operations: list[dict]) -> dict | None:
     """Keep the case only if method+path match a known operation."""
     if not isinstance(case, dict):
@@ -70,7 +83,7 @@ def _valid(case: dict, operations: list[dict]) -> dict | None:
             return None
     return {"method": method, "path": path, "body": body,
             "tier": tier or ("critical" if method in ("POST", "PUT", "PATCH", "DELETE") else "high"),
-            "source": "llm"}
+            "source": "llm", "label": _label(case)}
 
 
 def enhance_with_llm(operations: list[dict], *, api_key: str, model: str,

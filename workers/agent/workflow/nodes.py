@@ -11,7 +11,9 @@ from adapters.jev import ask_jev, build_questions, merge_verdict, summarize_traf
 from adapters.store import fetch_recent_rows, get_target_inventory, save_proposals, sb
 from config.settings import LATENCY_DEGRADATION_FACTOR
 from domain.criticality import bob_criticality, criticality_from_inventory
-from domain.decision import build_proposals, run_decision, within_window
+from domain.decision import (
+    analyze, build_proposals, informational_proposals, within_window,
+)
 from workflow.state import AgentState
 
 
@@ -33,18 +35,24 @@ def fetch_rows(state: AgentState) -> dict:
 
 
 def apply_rules(state: AgentState) -> dict:
-    """Deterministic guardrail verdict over the windowed rows."""
+    """Pair the rows into request deltas and run the deterministic guardrail."""
     windowed = within_window(state.get("rows", []), state["now"])
-    verdict, reasons = run_decision(
-        windowed, state.get("crit", {}), latency_factor=LATENCY_DEGRADATION_FACTOR
-    )
-    return {"windowed": windowed, "rules_verdict": verdict, "rules_reasons": reasons}
+    result = analyze(windowed, state.get("crit", {}),
+                     latency_factor=LATENCY_DEGRADATION_FACTOR)
+    return {
+        "windowed": windowed,
+        "analysis": result,
+        "deltas": result.deltas,
+        "rules_verdict": result.verdict,
+        "rules_reasons": result.reasons,
+    }
 
 
 def assess_jev(state: AgentState) -> dict:
-    """One System One call over the traffic summary. Never raises."""
-    questions = build_questions(state.get("crit", {}))
-    answers = ask_jev(summarize_traffic(state.get("windowed", []), state.get("crit", {})), questions)
+    """One System One call over the paired probe table. Never raises."""
+    deltas = state.get("deltas") or []
+    questions = build_questions(state.get("crit", {}), deltas)
+    answers = ask_jev(summarize_traffic(deltas), questions)
     return {"jev": answers}
 
 
@@ -57,8 +65,18 @@ def merge(state: AgentState) -> dict:
 
 
 def propose(state: AgentState) -> dict:
-    """Build the ranked set; persist only when the caller asked (/propose)."""
-    proposals = build_proposals(state.get("verdict", "keep"), state.get("reasons", []))
+    """Build the ranked set; persist only when the caller asked (/propose).
+
+    External targets run in advisory mode: no traffic control, so no proposal
+    carries `execute` and the headline is a recommendation to hold on stable.
+    """
+    analysis = state.get("analysis")
+    advisory_only = state.get("target_id") is not None
+    proposals = build_proposals(analysis, advisory_only=advisory_only)
+    if analysis is not None and state.get("verdict") == "escalate":
+        # Pre-existing bugs and status flips ride along with the regressions:
+        # real problems, but explicitly not canary regressions.
+        proposals += informational_proposals(analysis)
     proposal_id = (
         save_proposals(sb(), state["verdict"], proposals, state.get("reasons", []),
                        target_id=state.get("target_id"))

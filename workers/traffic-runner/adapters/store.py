@@ -32,6 +32,7 @@ def save_cases(client, target_id: str, cases: list[dict]) -> int:
     client.table("probe_cases").insert([{
         "target_id": target_id, "method": c["method"], "path": c["path"],
         "body": c["body"], "tier": c["tier"], "source": c["source"],
+        "label": c.get("label"),
     } for c in cases]).execute()
     return len(cases)
 
@@ -52,5 +53,5 @@ def list_targets(client, owner_email: str) -> list[dict]:
 def get_cases(client, target_id: str) -> list[dict]:
     """Stored cases for a target, in creation order."""
     return client.table("probe_cases").select(
-        "method,path,body,tier,source"
+        "method,path,body,tier,source,label"
     ).eq("target_id", target_id).order("id").execute().data

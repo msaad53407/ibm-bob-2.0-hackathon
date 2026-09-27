@@ -6,8 +6,7 @@ reads → high) so analysis follows the connected spec, not ours.
 """
 import _paths  # noqa: F401 — ensures shared/ is importable (Docker + repo layouts)
 from verification import CRITICALITY as SPEC_CRITICALITY  # noqa: E402
-
-_CRITICAL_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+from verification import tier_for_method  # noqa: E402
 
 
 def bob_criticality(spec_dir: str = "docs/spec"):
@@ -18,8 +17,9 @@ def bob_criticality(spec_dir: str = "docs/spec"):
 def criticality_from_inventory(inventory: list[dict]) -> dict:
     """Pure map: inventory operations → {critical, high} path prefixes.
 
-    Path templates keep their {params} (decision matching is prefix-based,
-    and fired paths share the same prefix up to the template).
+    Path templates keep their static prefix (/users/ from /users/{id}) so a
+    fired path still matches. Tiers come from the shared method rule, so the
+    agent and the runner never disagree about what counts as critical.
     """
     critical, high = [], []
     for op in inventory:
@@ -28,8 +28,7 @@ def criticality_from_inventory(inventory: list[dict]) -> dict:
         template = str(op.get("path_template", ""))
         if not template.startswith("/"):
             continue
-        # Strip {params}: decision matching is prefix-based, so the static
-        # part (/users/ from /users/{id}) is what fired paths share.
         prefix = template.split("{", 1)[0] or "/"
-        (critical if op.get("method") in _CRITICAL_METHODS else high).append(prefix)
+        (critical if tier_for_method(str(op.get("method", ""))) == "critical"
+         else high).append(prefix)
     return {"critical": critical, "high": high, "source": "target-spec"}

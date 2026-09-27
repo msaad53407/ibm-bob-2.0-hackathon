@@ -19,6 +19,8 @@ class AgentState(TypedDict, total=False):
     windowed: list[dict]     # rows inside the recency window
 
     # Rules node output
+    deltas: list             # paired stable/canary request pairs, worst first
+    analysis: object         # domain.decision.Analysis (verdict + reasons + groups)
     rules_verdict: str       # "escalate" | "keep"
     rules_reasons: list[str]
 

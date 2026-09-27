@@ -32,13 +32,12 @@ from domain.criticality import bob_criticality
 from domain.decision import (
     MIN_SAMPLES,
     RECENT_WINDOW_SECONDS,
+    analyze,
     approve_execution,
     build_proposals,
     decide_from_data,
     matches,
     path_of,
-    percentile,
-    run_decision,
     within_window,
 )
 from workflow import run_analysis
@@ -46,8 +45,8 @@ from workflow import run_analysis
 __all__ = [
     "app",
     "sb", "bob_criticality",
-    "path_of", "matches", "percentile", "within_window",
-    "run_decision", "build_proposals", "approve_execution",
+    "path_of", "matches", "within_window",
+    "analyze", "build_proposals", "approve_execution",
     "decide_from_data", "current_proposal_set", "decide_via_graph", "run_analysis",
     "fetch_recent_rows", "flip_proxy", "record_audit",
     "save_proposals", "list_proposals", "list_audit", "get_proposal_set",

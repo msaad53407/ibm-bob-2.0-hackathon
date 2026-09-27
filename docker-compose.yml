@@ -71,6 +71,7 @@ services:
       PORT: 8004
       RUN_ONCE: "false"
       RUN_ON_START: "true"
+      CASE_REPEATS: ${CASE_REPEATS:-2}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
       interval: 5s

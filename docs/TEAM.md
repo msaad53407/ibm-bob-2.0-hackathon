@@ -25,8 +25,9 @@ for all 4 cases x 2 services, both bugs reproduce deterministically.
 
 ## Track B — Decide + Show (teammate)
 
-Owns: `workers/agent/api/app.py` (`/decide` rule `error_diff>5% OR p95 split on
-critical → escalate`, `/propose` 3 ranked with risk/blast-radius/reversibility,
+Owns: `workers/agent/api/app.py` (`/decide` pairs the same probe on both sides
+and escalates on any Canary-only 5xx or latency regression, `/propose` ranked
+per-finding proposals with derived severity/blast-radius/reversibility,
 `/execute` real flip call + audit insert), `apps/web/` (live metrics via Realtime,
 proposal cards, approve/deny, audit viewer, MTTD/MTTR timers), `supabase`
 proposals/audit tables, demo script + video + submission.
@@ -36,9 +37,13 @@ proposals, human click executes a real flip, audit row is append-only, timers ru
 
 ## Shared contracts (do not change unilaterally)
 
-- Log schema: `packages/contracts/src/index.ts:LogRow`.
+- Log schema: `packages/contracts/src/index.ts:LogRow` — including the
+  `case_method` / `case_tier` / `case_source` / `case_label` attribution
+  columns. Those four are the join key `domain/compare.py` pairs Stable and
+  Canary responses on; a row written without them cannot be analysed.
 - Flip API: `GET/POST /admin/route {target: stable|canary}` on proxy `:8080`.
-- Criticality map: `{critical: ["/checkout"], high: ["/search"], source}`.
+- Criticality map: `{critical: ["/checkout"], high: ["/search"], source}`, and
+  `tier_for_method()` — the single definition of which methods are critical.
 - Agent API: `:8003/decide`, `/propose`, `/execute {target, approver}`.
 - Lean MVP + Realtime: no Sentry adapter, single model, polling replaced by
   Supabase Realtime, only flip executes (flag-off/shift-down displayed).

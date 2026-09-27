@@ -23,6 +23,17 @@ import type { ProposalItem, ProposalSet } from "@/types/guardrail";
 
 // ── Risk indicator ────────────────────────────────────────────────────────────
 
+/** Human label per finding kind — the badge in place of an Execute button. */
+const KIND_LABEL: Record<string, string> = {
+  flip: "Executable",
+  advisory_hold: "Advisory",
+  canary_error: "Canary-only failure",
+  latency_regress: "Latency regression",
+  status_divergence: "Status divergence",
+  shared_error: "Pre-existing",
+  stable_error: "Stable-only failure",
+};
+
 function RiskBar({ risk }: { risk: number }) {
   const pct = Math.round(risk * 100);
   const color =
@@ -64,6 +75,7 @@ function ProposalCard({
   advisory = false,
 }: ProposalCardProps) {
   const isExecutable = proposal.execute !== null && onExecute !== null;
+  const label = KIND_LABEL[proposal.kind] ?? "Informational";
 
   return (
     <div className="rounded border bg-card p-4 space-y-3">
@@ -74,6 +86,14 @@ function ProposalCard({
           </span>
           <div>
             <p className="text-sm font-medium leading-snug">{proposal.action}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge variant={proposal.tier === "critical" ? "destructive" : "secondary"} className="text-[10px]">
+                {proposal.tier}
+              </Badge>
+              <Badge variant="outline" className="font-mono text-[10px]">
+                {proposal.kind}
+              </Badge>
+            </div>
             <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1">
                 <RiAlertLine className="size-3" />
@@ -85,9 +105,23 @@ function ProposalCard({
               </span>
             </div>
             <div className="mt-2">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Risk</p>
+              <p
+                title="Severity of the finding this proposal addresses — derived from the evidence, not the chance the action fails."
+                className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1"
+              >
+                Finding severity
+              </p>
               <RiskBar risk={proposal.risk} />
             </div>
+            {proposal.evidence.length > 0 && (
+              <ul className="mt-2 space-y-0.5 border-l pl-2">
+                {proposal.evidence.map((e, i) => (
+                  <li key={i} className="font-mono text-[10px] text-muted-foreground">
+                    {e}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
@@ -105,7 +139,7 @@ function ProposalCard({
         ) : (
           <Badge variant="outline" className="shrink-0 text-[10px]">
             <RiInformationLine className="size-3" />
-            {advisory && proposal.execute !== null ? "Advisory" : "Informational"}
+            {advisory && proposal.execute !== null ? "Advisory" : label}
           </Badge>
         )}
       </div>

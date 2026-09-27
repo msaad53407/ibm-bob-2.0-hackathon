@@ -25,7 +25,7 @@ from domain.spec_parse import SpecError, parse_spec
 from domain.synthesize import synthesize
 from adapters.llm import enhance_with_llm
 from config.settings import (
-    ADMIN_TOKEN, CANARY, INTERVAL_SECONDS, LLM_MODEL, LLM_TIMEOUT,
+    ADMIN_TOKEN, CANARY, CASE_REPEATS, INTERVAL_SECONDS, LLM_MODEL, LLM_TIMEOUT,
     OPENROUTER_API_KEY, RUN_ONCE, RUN_ON_START, STABLE,
 )
 from adapters.store import (
@@ -36,7 +36,7 @@ from verification import CASES  # noqa: E402 — canonical probe spec
 __all__ = [
     "app",
     "CASES", "SERVICES", "STABLE", "CANARY",
-    "RUN_ONCE", "RUN_ON_START", "INTERVAL_SECONDS",
+    "RUN_ONCE", "RUN_ON_START", "INTERVAL_SECONDS", "CASE_REPEATS",
     "main", "run_once", "run_target_once", "sb", "save_rows", "collect_rows",
     "register_target",
 ]
@@ -58,7 +58,13 @@ def run_once() -> list[dict]:
 
 
 def run_target_once(target_id: str) -> list[dict]:
-    """Fire a registered target's stored cases at its own URLs, tag rows."""
+    """Fire a registered target's stored cases at its own URLs, tag rows.
+
+    Each case is fired CASE_REPEATS times per service so latency percentiles
+    have samples, and every row carries the case's tier/source/label — that
+    attribution is what lets the Decision pair the same request across
+    stable and canary instead of comparing blind aggregates.
+    """
     client = sb()
     target = get_target(client, target_id)
     if target is None:
@@ -69,31 +75,35 @@ def run_target_once(target_id: str) -> list[dict]:
     rows = []
     with httpx.Client(timeout=10) as c:
         for case in cases:
-            for service, base in services:
-                rows.append(fire_case(c, service, base, case["method"],
-                                      case["path"], case["body"]))
-    for r in rows:
-        r["target_id"] = target_id
+            for _ in range(CASE_REPEATS):
+                for service, base in services:
+                    row = fire_case(
+                        c, service, base, case["method"], case["path"], case["body"],
+                        tier=case.get("tier"), source=case.get("source"),
+                        label=case.get("label"), skip_noise=True,
+                    )
+                    if row is not None:
+                        row["target_id"] = target_id
+                        rows.append(row)
     save_rows(client, rows)
     return rows
 
 
 def _dry_fire_stable(cases: list[dict], stable_url: str) -> list[dict]:
-    """Drop LLM cases whose route doesn't exist (404) or can't connect.
+    """Drop cases whose route stable doesn't serve (404/405/501) or can't reach.
 
-    4xx/5xx on stable are kept — validation responses and real findings are
-    signal. Only unknown routes and transport errors are noise.
+    Other 4xx/5xx on stable are kept — validation responses and real findings
+    are signal. Only unknown routes and transport errors are noise. The real
+    method is used, so a PUT case is judged on the PUT route.
     """
     kept = []
     with httpx.Client(timeout=10) as c:
         for case in cases:
-            try:
-                r = c.get(stable_url + case["path"]) if case["method"] == "GET" \
-                    else c.post(stable_url + case["path"], json=case["body"])
-                if r.status_code != 404:
-                    kept.append(case)
-            except Exception:
-                continue
+            row = fire_case(c, ServiceName.STABLE, stable_url.rstrip("/"),
+                            case["method"], case["path"], case["body"],
+                            skip_noise=True)
+            if row is not None:
+                kept.append(case)
     return kept
 
 

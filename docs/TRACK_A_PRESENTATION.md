@@ -233,15 +233,44 @@ flowchart TD
   J -->|No| L[verdict = 'keep'\nreasons = no critical diff]
 ```
 
+**Request pairing (`domain/compare.py`) — the unit of analysis:**
+
+The runner fires the *same* `(method, path, body)` at Stable and Canary, so
+`pair_deltas()` joins the two responses and classifies each pair:
+
+| Kind | Meaning | Changes verdict? |
+|---|---|---|
+| `canary_error` | same request, Canary 5xx, Stable not | **yes** |
+| `latency_regress` | same request, Canary p95 > Stable p95 × factor | **yes** |
+| `status_divergence` | different status, neither is 5xx | no |
+| `shared_error` | 5xx on **both** sides | no — pre-existing |
+| `stable_error` | 5xx on Stable only | no — not a Canary regression |
+| `ok` | same status class, comparable latency | no |
+
+Bucketing is `(case_method, path, case_label)`, so a failure shared by both
+sides can never mask a Canary-only failure on the same path — the bug that
+previously hid 12 Canary-only 500s behind one shared 500. Criticality
+(`critical`/`high`) scales severity; it does not decide whether a check runs.
+
 **Proposal generation (`build_proposals`):**
 
 | Verdict | Proposals returned |
 |---|---|
 | `keep` | `[]` — nothing to do |
-| `escalate` (5xx) | `[flip-to-stable (executable, risk=0.1)]` |
-| `escalate` (latency only) | `[flip-to-stable (executable), investigate note (informational)]` |
+| `escalate`, demo | `[flip-to-stable (executable)]` + one recommendation per finding, ranked |
+| `escalate`, external target | `[hold traffic on stable]` + one recommendation per finding, **none executable** |
 
-The `execute` field on a Proposal is either `{"target": "stable"}` or `null`. The dashboard only shows the Execute button for non-null proposals.
+Every proposal carries `kind`, `tier`, and `evidence[]` (the actual statuses
+and counts behind it). `risk` is the **severity of the finding** the proposal
+addresses — derived from `kind × tier × intensity`, never a constant — and
+`blast_radius` / `reversibility` name the real routes and say plainly that we
+do not control a third party's traffic. Non-regressions (shared errors,
+Stable-only failures) are reported by `informational_proposals()` as
+information, explicitly labelled as *not* regressions.
+
+The `execute` field is either `{"target": "stable"}` or `null`; the dashboard
+only shows Execute for non-null, and advisory sets are structurally
+unapprovable by `approve_execution`.
 
 ---
 
@@ -286,12 +315,12 @@ sequenceDiagram
   Dashboard->>Agent: POST /propose
   Agent->>Supabase: SELECT logs (last 200, 1h window)
   Supabase-->>Agent: log rows
-  Agent->>Agent: run_decision() → escalate
-  Agent->>Agent: build_proposals() → [flip-to-stable]
+  Agent->>Agent: analyze() → pair_deltas() → escalate
+  Agent->>Agent: build_proposals() → [flip-to-stable, per-finding]
   Agent->>Supabase: INSERT proposals → id=42
   Agent-->>Dashboard: ProposalSet {id:42, verdict:"escalate", proposals:[...]}
 
-  Dashboard->>Human: Show proposal #42:\n"traffic flip to stable · risk 10%"
+  Dashboard->>Human: Show proposal #42:\n"traffic flip to stable · finding severity 54%"
   Human->>Dashboard: Click "Execute"
 
   Dashboard->>Agent: POST /execute {target:"stable", approver:"human", proposal_id:42}
